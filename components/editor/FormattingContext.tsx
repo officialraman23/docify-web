@@ -3,14 +3,11 @@
 import { createContext, useContext, useState } from "react";
 
 export type FontFamily =
-  | "Times New Roman"
   | "Arial"
-  | "Calibri"
-  | "Georgia"
   | "Helvetica"
-  | "Garamond"
-  | "Cambria"
-  | "Verdana";
+  | "Verdana"
+  | "Georgia"
+  | "Times New Roman";
 
 type FormattingContextType = {
   fontFamily: FontFamily;
