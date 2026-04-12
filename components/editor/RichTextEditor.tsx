@@ -7,6 +7,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
 import { useEffect, useState } from "react";
+import { useFormatting } from "@/components/editor/FormattingContext";
 
 type RichTextEditorProps = {
   content: string;
@@ -29,6 +30,7 @@ export default function RichTextEditor({
   placeholder = "Start writing...",
 }: RichTextEditorProps) {
   const [hasSelection, setHasSelection] = useState(false);
+  const { fontFamily, fontSize } = useFormatting();
 
   const editor = useEditor({
     extensions: [
@@ -201,7 +203,8 @@ export default function RichTextEditor({
             color: white;
             outline: none;
             line-height: 1.8;
-            font-size: 18px;
+            font-size: ${fontSize}px;
+            font-family: "${fontFamily}", serif;
           }
 
           .tiptap p {
@@ -209,14 +212,14 @@ export default function RichTextEditor({
           }
 
           .tiptap h1 {
-            font-size: 2rem;
+            font-size: ${Math.max(fontSize + 14, 24)}px;
             font-weight: 700;
             line-height: 1.2;
             margin: 1rem 0 0.75rem 0;
           }
 
           .tiptap h2 {
-            font-size: 1.5rem;
+            font-size: ${Math.max(fontSize + 8, 20)}px;
             font-weight: 700;
             line-height: 1.3;
             margin: 0.9rem 0 0.65rem 0;
