@@ -76,8 +76,8 @@ export default function RichTextEditor({
   if (!editor) return null;
 
   const applyAction = (action: () => void) => {
-    editor.chain().focus();
     action();
+    editor.commands.focus();
   };
 
   return (
@@ -198,50 +198,39 @@ export default function RichTextEditor({
 
       <div className="rounded-xl bg-neutral-800 px-4 py-3">
         <style jsx global>{`
-          .tiptap {
-            min-height: 220px;
-            color: white;
-            outline: none;
-            line-height: 1.8;
-            font-size: ${fontSize}px;
-            font-family: "${fontFamily}", serif;
-          }
-
-          .tiptap p {
+          .docify-editor-content p {
             margin: 0.5rem 0;
           }
 
-          .tiptap h1 {
-            font-size: ${Math.max(fontSize + 14, 24)}px;
+          .docify-editor-content h1 {
             font-weight: 700;
             line-height: 1.2;
             margin: 1rem 0 0.75rem 0;
           }
 
-          .tiptap h2 {
-            font-size: ${Math.max(fontSize + 8, 20)}px;
+          .docify-editor-content h2 {
             font-weight: 700;
             line-height: 1.3;
             margin: 0.9rem 0 0.65rem 0;
           }
 
-          .tiptap ul {
+          .docify-editor-content ul {
             list-style-type: disc;
             padding-left: 1.5rem;
             margin: 0.75rem 0;
           }
 
-          .tiptap ol {
+          .docify-editor-content ol {
             list-style-type: decimal;
             padding-left: 1.5rem;
             margin: 0.75rem 0;
           }
 
-          .tiptap li {
+          .docify-editor-content li {
             margin: 0.25rem 0;
           }
 
-          .tiptap mark {
+          .docify-editor-content mark {
             background-color: #fde68a;
             color: black;
             padding: 0.05rem 0.2rem;
@@ -249,7 +238,16 @@ export default function RichTextEditor({
           }
         `}</style>
 
-        <EditorContent editor={editor} className="tiptap" />
+        <div
+          className="docify-editor-content min-h-[220px] text-white outline-none"
+          style={{
+            fontFamily,
+            fontSize: `${fontSize}px`,
+            lineHeight: 1.8,
+          }}
+        >
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </div>
   );
