@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import DocumentPreview from "@/components/editor/DocumentPreview";
 
 type SavedDocument = {
   id: string;
@@ -15,14 +16,28 @@ export default function LibraryPage() {
     {
       id: crypto.randomUUID(),
       title: "Climate Change Essay",
-      content: "This is a saved essay preview...",
+      content: `Climate change is one of the most serious global issues today.
+
+It affects the environment, public health, and the economy in many ways. Rising temperatures, stronger storms, and sea level rise show that this problem is growing quickly.
+
+Governments, communities, and individuals must act now to reduce emissions and protect the future.
+
+References
+United Nations. Climate Action Overview.`,
       style: "APA",
       createdAt: "2026-04-12",
     },
     {
       id: crypto.randomUUID(),
       title: "History Outline Draft",
-      content: "This is an outline draft preview...",
+      content: `Hook: History helps people understand how societies change over time.
+
+Topic Introduction: Historical events influence politics, culture, and identity.
+
+Thesis: Studying history is important because it teaches lessons, explains present systems, and helps avoid repeated mistakes.
+
+Works Cited
+Sample historical source entry.`,
       style: "MLA",
       createdAt: "2026-04-11",
     },
@@ -55,8 +70,8 @@ export default function LibraryPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-6">
+        <div className="space-y-5">
           {documents.map((doc) => (
             <div key={doc.id} className="bg-neutral-900 rounded-2xl p-5 space-y-3">
               <div className="flex items-start justify-between gap-4">
@@ -102,35 +117,17 @@ export default function LibraryPage() {
           ))}
         </div>
 
-        <div className="bg-neutral-900 rounded-2xl p-5">
-          <h3 className="text-xl font-semibold mb-4">Preview</h3>
-
+        <div>
           {selectedDocument ? (
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-400">Title</p>
-                <p className="font-semibold">{selectedDocument.title}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-400">Style</p>
-                <p>{selectedDocument.style}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-400">Created</p>
-                <p>{selectedDocument.createdAt}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-400 mb-2">Content</p>
-                <div className="bg-neutral-800 rounded-xl p-4 text-sm text-gray-300 whitespace-pre-wrap">
-                  {selectedDocument.content}
-                </div>
-              </div>
-            </div>
+            <DocumentPreview
+              title={selectedDocument.title}
+              styleLabel={`${selectedDocument.style} • ${selectedDocument.createdAt}`}
+              content={selectedDocument.content}
+            />
           ) : (
-            <p className="text-gray-400">Select a document to preview it.</p>
+            <div className="bg-neutral-900 rounded-2xl p-6 text-gray-400">
+              Select a document to preview it like a real page.
+            </div>
           )}
         </div>
       </div>
