@@ -6,7 +6,7 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFormatting } from "@/components/editor/FormattingContext";
 
 type RichTextEditorProps = {
@@ -24,6 +24,22 @@ function toolbarButtonClass(isActive: boolean) {
   ].join(" ");
 }
 
+function getFontStack(fontFamily: string) {
+  switch (fontFamily) {
+    case "Arial":
+      return 'Arial, Helvetica, sans-serif';
+    case "Helvetica":
+      return '"Helvetica Neue", Helvetica, Arial, sans-serif';
+    case "Verdana":
+      return 'Verdana, Geneva, sans-serif';
+    case "Georgia":
+      return 'Georgia, serif';
+    case "Times New Roman":
+    default:
+      return '"Times New Roman", Times, serif';
+  }
+}
+
 export default function RichTextEditor({
   content,
   onChange,
@@ -31,6 +47,8 @@ export default function RichTextEditor({
 }: RichTextEditorProps) {
   const [hasSelection, setHasSelection] = useState(false);
   const { fontFamily, fontSize } = useFormatting();
+
+  const fontStack = useMemo(() => getFontStack(fontFamily), [fontFamily]);
 
   const editor = useEditor({
     extensions: [
@@ -123,7 +141,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().toggleBulletList().run())}
           className={toolbarButtonClass(editor.isActive("bulletList"))}
-          title="Toggle bullet list"
         >
           Bullets
         </button>
@@ -132,7 +149,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().toggleOrderedList().run())}
           className={toolbarButtonClass(editor.isActive("orderedList"))}
-          title="Toggle numbered list"
         >
           Numbered
         </button>
@@ -143,7 +159,6 @@ export default function RichTextEditor({
             applyAction(() => editor.chain().focus().toggleHeading({ level: 1 }).run())
           }
           className={toolbarButtonClass(editor.isActive("heading", { level: 1 }))}
-          title="Toggle heading 1"
         >
           H1
         </button>
@@ -154,7 +169,6 @@ export default function RichTextEditor({
             applyAction(() => editor.chain().focus().toggleHeading({ level: 2 }).run())
           }
           className={toolbarButtonClass(editor.isActive("heading", { level: 2 }))}
-          title="Toggle heading 2"
         >
           H2
         </button>
@@ -163,7 +177,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().setParagraph().run())}
           className={toolbarButtonClass(editor.isActive("paragraph"))}
-          title="Set normal paragraph"
         >
           Paragraph
         </button>
@@ -172,7 +185,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().setTextAlign("left").run())}
           className={toolbarButtonClass(editor.isActive({ textAlign: "left" }))}
-          title="Align left"
         >
           Left
         </button>
@@ -181,7 +193,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().setTextAlign("center").run())}
           className={toolbarButtonClass(editor.isActive({ textAlign: "center" }))}
-          title="Align center"
         >
           Center
         </button>
@@ -190,47 +201,67 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().setTextAlign("right").run())}
           className={toolbarButtonClass(editor.isActive({ textAlign: "right" }))}
-          title="Align right"
         >
           Right
         </button>
       </div>
 
-      <div className="rounded-xl bg-neutral-800 px-4 py-3">
+      <div
+        className="rounded-xl bg-neutral-800 px-4 py-3 docify-editor-content"
+        style={
+          {
+            ["--docify-font-family" as string]: fontStack,
+            ["--docify-font-size" as string]: `${fontSize}px`,
+            ["--docify-h1-size" as string]: `${Math.max(fontSize + 14, 24)}px`,
+            ["--docify-h2-size" as string]: `${Math.max(fontSize + 8, 20)}px`,
+          } as React.CSSProperties
+        }
+      >
         <style jsx global>{`
-          .docify-editor-content p {
+          .docify-editor-content .ProseMirror {
+            min-height: 220px;
+            color: white;
+            outline: none;
+            line-height: 1.8;
+            font-family: var(--docify-font-family) !important;
+            font-size: var(--docify-font-size) !important;
+          }
+
+          .docify-editor-content .ProseMirror p {
             margin: 0.5rem 0;
           }
 
-          .docify-editor-content h1 {
+          .docify-editor-content .ProseMirror h1 {
+            font-size: var(--docify-h1-size) !important;
             font-weight: 700;
             line-height: 1.2;
             margin: 1rem 0 0.75rem 0;
           }
 
-          .docify-editor-content h2 {
+          .docify-editor-content .ProseMirror h2 {
+            font-size: var(--docify-h2-size) !important;
             font-weight: 700;
             line-height: 1.3;
             margin: 0.9rem 0 0.65rem 0;
           }
 
-          .docify-editor-content ul {
+          .docify-editor-content .ProseMirror ul {
             list-style-type: disc;
             padding-left: 1.5rem;
             margin: 0.75rem 0;
           }
 
-          .docify-editor-content ol {
+          .docify-editor-content .ProseMirror ol {
             list-style-type: decimal;
             padding-left: 1.5rem;
             margin: 0.75rem 0;
           }
 
-          .docify-editor-content li {
+          .docify-editor-content .ProseMirror li {
             margin: 0.25rem 0;
           }
 
-          .docify-editor-content mark {
+          .docify-editor-content .ProseMirror mark {
             background-color: #fde68a;
             color: black;
             padding: 0.05rem 0.2rem;
@@ -238,16 +269,7 @@ export default function RichTextEditor({
           }
         `}</style>
 
-        <div
-          className="docify-editor-content min-h-[220px] text-white outline-none"
-          style={{
-            fontFamily,
-            fontSize: `${fontSize}px`,
-            lineHeight: 1.8,
-          }}
-        >
-          <EditorContent editor={editor} />
-        </div>
+        <EditorContent editor={editor} />
       </div>
     </div>
   );
