@@ -2,11 +2,16 @@
 
 import { useMemo, useState } from "react";
 import DocumentPreview from "@/components/editor/DocumentPreview";
+import RichTextEditor from "@/components/editor/RichTextEditor";
 
 type BodyParagraph = {
   id: string;
   text: string;
 };
+
+function stripHtml(html: string) {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+}
 
 export default function EssayPage() {
   const [name, setName] = useState("");
@@ -29,7 +34,8 @@ export default function EssayPage() {
     { id: crypto.randomUUID(), text: "" },
   ]);
 
-  const referencesTitle = selectedStyle === "MLA" ? "Works Cited" : "References";
+  const referencesTitle =
+    selectedStyle === "MLA" ? "Works Cited" : "References";
 
   const fullDocumentPreview = useMemo(() => {
     const lines: string[] = [];
@@ -49,14 +55,16 @@ export default function EssayPage() {
       if (title) lines.push("", title);
     }
 
-    if (introduction) lines.push("", introduction);
+    const cleanIntroduction = stripHtml(introduction);
+    if (cleanIntroduction) lines.push("", cleanIntroduction);
 
     bodyParagraphs.forEach((para) => {
-      const clean = para.text.trim();
+      const clean = stripHtml(para.text);
       if (clean) lines.push("", clean);
     });
 
-    if (conclusion) lines.push("", conclusion);
+    const cleanConclusion = stripHtml(conclusion);
+    if (cleanConclusion) lines.push("", cleanConclusion);
 
     const refLines = references
       .split("\n")
@@ -102,7 +110,9 @@ export default function EssayPage() {
   };
 
   const handleFakeCheck = (text: string) => {
-    if (!text.trim()) {
+    const clean = stripHtml(text);
+
+    if (!clean.trim()) {
       setAiResult("Please write something first.");
       return;
     }
@@ -117,7 +127,9 @@ export default function EssayPage() {
   };
 
   const handleFakeImprove = (text: string) => {
-    if (!text.trim()) {
+    const clean = stripHtml(text);
+
+    if (!clean.trim()) {
       setAiResult("Please write something first.");
       return;
     }
@@ -129,12 +141,6 @@ export default function EssayPage() {
 
     setCredits((prev) => prev - 2);
     setAiResult("Improve result placeholder: Firebase AI comes next.");
-  };
-
-  const handleSelectPreview = (value: string) => {
-    setSelectedTextPreview(
-      value.slice(0, 240).trim() || "No text selected yet."
-    );
   };
 
   return (
@@ -182,25 +188,22 @@ export default function EssayPage() {
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
             <h2 className="text-xl font-semibold">Introduction</h2>
-            <textarea
-              value={introduction}
-              onChange={(e) => setIntroduction(e.target.value)}
-              onSelect={(e) =>
-                handleSelectPreview(
-                  e.currentTarget.value.substring(
-                    e.currentTarget.selectionStart,
-                    e.currentTarget.selectionEnd
-                  )
-                )
-              }
-              className="w-full h-36 p-3 bg-neutral-800 rounded-xl outline-none"
+            <RichTextEditor
+              content={introduction}
+              onChange={setIntroduction}
               placeholder="Write your introduction..."
             />
             <div className="flex gap-3">
-              <button onClick={() => handleFakeCheck(introduction)} className="bg-white text-black px-4 py-2 rounded-xl font-medium">
+              <button
+                onClick={() => handleFakeCheck(introduction)}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+              >
                 Check (-1)
               </button>
-              <button onClick={() => handleFakeImprove(introduction)} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
+              <button
+                onClick={() => handleFakeImprove(introduction)}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+              >
                 Improve (-2)
               </button>
             </div>
@@ -209,7 +212,10 @@ export default function EssayPage() {
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold">Body Paragraphs</h2>
-              <button onClick={addParagraph} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
+              <button
+                onClick={addParagraph}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+              >
                 Add Paragraph
               </button>
             </div>
@@ -228,26 +234,23 @@ export default function EssayPage() {
                   )}
                 </div>
 
-                <textarea
-                  value={para.text}
-                  onChange={(e) => updateParagraph(para.id, e.target.value)}
-                  onSelect={(e) =>
-                    handleSelectPreview(
-                      e.currentTarget.value.substring(
-                        e.currentTarget.selectionStart,
-                        e.currentTarget.selectionEnd
-                      )
-                    )
-                  }
-                  className="w-full h-36 p-3 bg-neutral-800 rounded-xl outline-none"
+                <RichTextEditor
+                  content={para.text}
+                  onChange={(value) => updateParagraph(para.id, value)}
                   placeholder={`Write body paragraph ${index + 1}...`}
                 />
 
                 <div className="flex gap-3">
-                  <button onClick={() => handleFakeCheck(para.text)} className="bg-white text-black px-4 py-2 rounded-xl font-medium">
+                  <button
+                    onClick={() => handleFakeCheck(para.text)}
+                    className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+                  >
                     Check (-1)
                   </button>
-                  <button onClick={() => handleFakeImprove(para.text)} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
+                  <button
+                    onClick={() => handleFakeImprove(para.text)}
+                    className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+                  >
                     Improve (-2)
                   </button>
                 </div>
@@ -257,25 +260,22 @@ export default function EssayPage() {
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
             <h2 className="text-xl font-semibold">Conclusion</h2>
-            <textarea
-              value={conclusion}
-              onChange={(e) => setConclusion(e.target.value)}
-              onSelect={(e) =>
-                handleSelectPreview(
-                  e.currentTarget.value.substring(
-                    e.currentTarget.selectionStart,
-                    e.currentTarget.selectionEnd
-                  )
-                )
-              }
-              className="w-full h-36 p-3 bg-neutral-800 rounded-xl outline-none"
+            <RichTextEditor
+              content={conclusion}
+              onChange={setConclusion}
               placeholder="Write your conclusion..."
             />
             <div className="flex gap-3">
-              <button onClick={() => handleFakeCheck(conclusion)} className="bg-white text-black px-4 py-2 rounded-xl font-medium">
+              <button
+                onClick={() => handleFakeCheck(conclusion)}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+              >
                 Check (-1)
               </button>
-              <button onClick={() => handleFakeImprove(conclusion)} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
+              <button
+                onClick={() => handleFakeImprove(conclusion)}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+              >
                 Improve (-2)
               </button>
             </div>
