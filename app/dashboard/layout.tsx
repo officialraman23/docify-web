@@ -4,8 +4,11 @@ import Link from "next/link";
 import {
   FormattingProvider,
   useFormatting,
-  type FontFamily,
 } from "@/components/editor/FormattingContext";
+import {
+  editorFontNames,
+  type EditorFontName,
+} from "@/lib/editorFonts";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const {
@@ -54,17 +57,16 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
                   <p className="text-sm text-gray-400 mb-2">Font Family</p>
                   <select
                     value={fontFamily}
-                    onChange={(e) => setFontFamily(e.target.value as FontFamily)}
+                    onChange={(e) =>
+                      setFontFamily(e.target.value as EditorFontName)
+                    }
                     className="w-full bg-neutral-700 rounded-lg px-3 py-2 outline-none"
                   >
-                    <option>Times New Roman</option>
-                    <option>Arial</option>
-                    <option>Calibri</option>
-                    <option>Georgia</option>
-                    <option>Helvetica</option>
-                    <option>Garamond</option>
-                    <option>Cambria</option>
-                    <option>Verdana</option>
+                    {editorFontNames.map((font) => (
+                      <option key={font} value={font}>
+                        {font}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
