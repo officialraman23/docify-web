@@ -6,8 +6,9 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useFormatting } from "@/components/editor/FormattingContext";
+import { editorFonts } from "@/lib/editorFonts";
 
 type RichTextEditorProps = {
   content: string;
@@ -24,22 +25,6 @@ function toolbarButtonClass(isActive: boolean) {
   ].join(" ");
 }
 
-function getFontStack(fontFamily: string) {
-  switch (fontFamily) {
-    case "Arial":
-      return 'Arial, Helvetica, sans-serif';
-    case "Helvetica":
-      return '"Helvetica Neue", Helvetica, Arial, sans-serif';
-    case "Verdana":
-      return 'Verdana, Geneva, sans-serif';
-    case "Georgia":
-      return 'Georgia, serif';
-    case "Times New Roman":
-    default:
-      return '"Times New Roman", Times, serif';
-  }
-}
-
 export default function RichTextEditor({
   content,
   onChange,
@@ -48,16 +33,12 @@ export default function RichTextEditor({
   const [hasSelection, setHasSelection] = useState(false);
   const { fontFamily, fontSize } = useFormatting();
 
-  const fontStack = useMemo(() => getFontStack(fontFamily), [fontFamily]);
-
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         bulletList: true,
         orderedList: true,
-        heading: {
-          levels: [1, 2, 3],
-        },
+        heading: { levels: [1, 2, 3] },
       }),
       Underline,
       Highlight,
@@ -97,6 +78,8 @@ export default function RichTextEditor({
     action();
     editor.commands.focus();
   };
+
+  const loadedFontFamily = editorFonts[fontFamily].style.fontFamily;
 
   return (
     <div className="space-y-3">
@@ -155,9 +138,7 @@ export default function RichTextEditor({
 
         <button
           type="button"
-          onClick={() =>
-            applyAction(() => editor.chain().focus().toggleHeading({ level: 1 }).run())
-          }
+          onClick={() => applyAction(() => editor.chain().focus().toggleHeading({ level: 1 }).run())}
           className={toolbarButtonClass(editor.isActive("heading", { level: 1 }))}
         >
           H1
@@ -165,9 +146,7 @@ export default function RichTextEditor({
 
         <button
           type="button"
-          onClick={() =>
-            applyAction(() => editor.chain().focus().toggleHeading({ level: 2 }).run())
-          }
+          onClick={() => applyAction(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
           className={toolbarButtonClass(editor.isActive("heading", { level: 2 }))}
         >
           H2
@@ -206,25 +185,13 @@ export default function RichTextEditor({
         </button>
       </div>
 
-      <div
-        className="rounded-xl bg-neutral-800 px-4 py-3 docify-editor-content"
-        style={
-          {
-            ["--docify-font-family" as string]: fontStack,
-            ["--docify-font-size" as string]: `${fontSize}px`,
-            ["--docify-h1-size" as string]: `${Math.max(fontSize + 14, 24)}px`,
-            ["--docify-h2-size" as string]: `${Math.max(fontSize + 8, 20)}px`,
-          } as React.CSSProperties
-        }
-      >
+      <div className="rounded-xl bg-neutral-800 px-4 py-3 docify-editor-content">
         <style jsx global>{`
           .docify-editor-content .ProseMirror {
             min-height: 220px;
             color: white;
             outline: none;
-            line-height: 1.8;
-            font-family: var(--docify-font-family) !important;
-            font-size: var(--docify-font-size) !important;
+            line-height: 1.9;
           }
 
           .docify-editor-content .ProseMirror p {
@@ -232,14 +199,12 @@ export default function RichTextEditor({
           }
 
           .docify-editor-content .ProseMirror h1 {
-            font-size: var(--docify-h1-size) !important;
             font-weight: 700;
             line-height: 1.2;
             margin: 1rem 0 0.75rem 0;
           }
 
           .docify-editor-content .ProseMirror h2 {
-            font-size: var(--docify-h2-size) !important;
             font-weight: 700;
             line-height: 1.3;
             margin: 0.9rem 0 0.65rem 0;
@@ -269,7 +234,14 @@ export default function RichTextEditor({
           }
         `}</style>
 
-        <EditorContent editor={editor} />
+        <div
+          style={{
+            fontFamily: loadedFontFamily,
+            fontSize: `${fontSize}px`,
+          }}
+        >
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </div>
   );
