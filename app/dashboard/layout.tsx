@@ -4,11 +4,8 @@ import Link from "next/link";
 import {
   FormattingProvider,
   useFormatting,
-} from "@/components/editor/FormattingContext";
-import {
-  editorFontNames,
   type EditorFontName,
-} from "@/lib/editorFonts";
+} from "@/components/editor/FormattingContext";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const {
@@ -27,22 +24,13 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             <h1 className="text-xl font-bold mb-6">Docify ✨</h1>
 
             <div className="space-y-3">
-              <Link
-                href="/dashboard/essay"
-                className="block text-gray-300 hover:text-white"
-              >
+              <Link href="/dashboard/essay" className="block text-gray-300 hover:text-white">
                 Essay Builder
               </Link>
-              <Link
-                href="/dashboard/outline"
-                className="block text-gray-300 hover:text-white"
-              >
+              <Link href="/dashboard/outline" className="block text-gray-300 hover:text-white">
                 Outline
               </Link>
-              <Link
-                href="/dashboard/library"
-                className="block text-gray-300 hover:text-white"
-              >
+              <Link href="/dashboard/library" className="block text-gray-300 hover:text-white">
                 Library
               </Link>
             </div>
@@ -62,11 +50,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
                     }
                     className="w-full bg-neutral-700 rounded-lg px-3 py-2 outline-none"
                   >
-                    {editorFontNames.map((font) => (
-                      <option key={font} value={font}>
-                        {font}
-                      </option>
-                    ))}
+                    <option value="serif">Serif</option>
+                    <option value="sans">Sans</option>
+                    <option value="monospace">Monospace</option>
                   </select>
                 </div>
 

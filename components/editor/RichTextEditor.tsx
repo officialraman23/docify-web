@@ -9,12 +9,6 @@ type RichTextEditorProps = {
   placeholder?: string;
 };
 
-declare global {
-  interface Window {
-    Quill: any;
-  }
-}
-
 export default function RichTextEditor({
   content,
   onChange,
@@ -36,17 +30,7 @@ export default function RichTextEditor({
       const Quill = QuillModule.default;
 
       const Font = Quill.import("formats/font");
-      Font.whitelist = [
-        "serif",
-        "sans",
-        "mono",
-        "inter",
-        "lora",
-        "merriweather",
-        "source-serif",
-        "plex-sans",
-        "plex-serif",
-      ];
+      Font.whitelist = ["serif", "sans", "monospace"];
       Quill.register(Font, true);
 
       const Size = Quill.import("attributors/style/size");
@@ -68,6 +52,18 @@ export default function RichTextEditor({
         modules: {
           toolbar: `#${toolbarId}`,
         },
+        formats: [
+          "font",
+          "size",
+          "bold",
+          "italic",
+          "underline",
+          "header",
+          "list",
+          "bullet",
+          "align",
+          "image",
+        ],
       });
 
       quill.root.innerHTML = content || "";
@@ -81,9 +77,10 @@ export default function RichTextEditor({
       if (!mounted) return;
       quillRef.current = quill;
 
-      // default formatting on first load
-      quill.format("font", mapFontToQuill(fontFamily));
-      quill.format("size", `${fontSize}px`);
+      // apply initial font + size to all content
+      const length = quill.getLength();
+      quill.formatText(0, length, "font", fontFamily);
+      quill.formatText(0, length, "size", `${fontSize}px`);
     }
 
     init();
@@ -91,7 +88,7 @@ export default function RichTextEditor({
     return () => {
       mounted = false;
     };
-  }, [content, onChange, placeholder, toolbarId, fontFamily, fontSize]);
+  }, [content, onChange, placeholder, toolbarId]);
 
   useEffect(() => {
     const quill = quillRef.current;
@@ -108,14 +105,16 @@ export default function RichTextEditor({
     const quill = quillRef.current;
     if (!quill) return;
 
-    quill.format("font", mapFontToQuill(fontFamily));
+    const length = quill.getLength();
+    quill.formatText(0, length, "font", fontFamily);
   }, [fontFamily]);
 
   useEffect(() => {
     const quill = quillRef.current;
     if (!quill) return;
 
-    quill.format("size", `${fontSize}px`);
+    const length = quill.getLength();
+    quill.formatText(0, length, "size", `${fontSize}px`);
   }, [fontSize]);
 
   return (
@@ -127,13 +126,7 @@ export default function RichTextEditor({
         <select className="ql-font bg-neutral-700 text-white rounded px-2 py-2">
           <option value="serif">Serif</option>
           <option value="sans">Sans</option>
-          <option value="mono">Mono</option>
-          <option value="inter">Inter</option>
-          <option value="lora">Lora</option>
-          <option value="merriweather">Merriweather</option>
-          <option value="source-serif">Source Serif</option>
-          <option value="plex-sans">IBM Plex Sans</option>
-          <option value="plex-serif">IBM Plex Serif</option>
+          <option value="monospace">Monospace</option>
         </select>
 
         <select className="ql-size bg-neutral-700 text-white rounded px-2 py-2">
@@ -160,39 +153,28 @@ export default function RichTextEditor({
         <button className="ql-clean" />
       </div>
 
-      <div className="rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-800">
+      <div className="rounded-2xl overflow-hidden border border-neutral-800 bg-white">
         <style jsx global>{`
           .ql-toolbar.ql-snow {
             border: 0 !important;
-            background: transparent !important;
+            background: #f8fafc !important;
+            border-bottom: 1px solid #e5e7eb !important;
           }
 
           .ql-container.ql-snow {
             border: 0 !important;
-            font-size: ${fontSize}px;
           }
 
           .ql-editor {
-            min-height: 220px;
-            color: white;
+            min-height: 240px;
+            color: #111827;
             line-height: 1.9;
+            background: white;
           }
 
           .ql-editor.ql-blank::before {
             color: #9ca3af !important;
             font-style: normal !important;
-          }
-
-          .ql-snow .ql-stroke {
-            stroke: white !important;
-          }
-
-          .ql-snow .ql-fill {
-            fill: white !important;
-          }
-
-          .ql-snow .ql-picker {
-            color: white !important;
           }
 
           .ql-font-serif {
@@ -203,32 +185,8 @@ export default function RichTextEditor({
             font-family: Arial, Helvetica, sans-serif;
           }
 
-          .ql-font-mono {
+          .ql-font-monospace {
             font-family: Menlo, Monaco, monospace;
-          }
-
-          .ql-font-inter {
-            font-family: Inter, Arial, sans-serif;
-          }
-
-          .ql-font-lora {
-            font-family: Lora, Georgia, serif;
-          }
-
-          .ql-font-merriweather {
-            font-family: Merriweather, Georgia, serif;
-          }
-
-          .ql-font-source-serif {
-            font-family: "Source Serif 4", Georgia, serif;
-          }
-
-          .ql-font-plex-sans {
-            font-family: "IBM Plex Sans", Arial, sans-serif;
-          }
-
-          .ql-font-plex-serif {
-            font-family: "IBM Plex Serif", Georgia, serif;
           }
         `}</style>
 
@@ -236,23 +194,4 @@ export default function RichTextEditor({
       </div>
     </div>
   );
-}
-
-function mapFontToQuill(fontFamily: string) {
-  switch (fontFamily) {
-    case "Inter":
-      return "inter";
-    case "Lora":
-      return "lora";
-    case "Merriweather":
-      return "merriweather";
-    case "Source Serif 4":
-      return "source-serif";
-    case "IBM Plex Sans":
-      return "plex-sans";
-    case "IBM Plex Serif":
-      return "plex-serif";
-    default:
-      return "source-serif";
-  }
 }

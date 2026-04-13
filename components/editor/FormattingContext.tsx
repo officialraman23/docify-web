@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
-import type { EditorFontName } from "@/lib/editorFonts";
+
+export type EditorFontName = "serif" | "sans" | "monospace";
 
 type FormattingContextType = {
   fontFamily: EditorFontName;
@@ -18,8 +19,7 @@ export function FormattingProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [fontFamily, setFontFamily] =
-    useState<EditorFontName>("Source Serif 4");
+  const [fontFamily, setFontFamily] = useState<EditorFontName>("serif");
   const [fontSize, setFontSize] = useState(16);
 
   const increaseFontSize = () => {
