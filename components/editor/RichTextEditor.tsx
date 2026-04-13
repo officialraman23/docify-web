@@ -1,15 +1,7 @@
 "use client";
 
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
-import TextAlign from "@tiptap/extension-text-align";
-import Placeholder from "@tiptap/extension-placeholder";
-import Highlight from "@tiptap/extension-highlight";
-import { TextStyle, FontFamily } from "@tiptap/extension-text-style";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useFormatting } from "@/components/editor/FormattingContext";
-import { editorFonts } from "@/lib/editorFonts";
 
 type RichTextEditorProps = {
   content: string;
@@ -17,13 +9,10 @@ type RichTextEditorProps = {
   placeholder?: string;
 };
 
-function toolbarButtonClass(isActive: boolean) {
-  return [
-    "px-3 py-2 rounded-lg transition font-medium border",
-    isActive
-      ? "bg-blue-500 text-white border-blue-400 shadow-md"
-      : "bg-neutral-700 text-white border-neutral-600 hover:bg-neutral-600",
-  ].join(" ");
+declare global {
+  interface Window {
+    Quill: any;
+  }
 }
 
 export default function RichTextEditor({
@@ -31,227 +20,239 @@ export default function RichTextEditor({
   onChange,
   placeholder = "Start writing...",
 }: RichTextEditorProps) {
-  const [hasSelection, setHasSelection] = useState(false);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const quillRef = useRef<any>(null);
+  const lastHtmlRef = useRef(content);
+  const toolbarId = useId().replace(/:/g, "");
   const { fontFamily, fontSize } = useFormatting();
 
-  const loadedFontFamily = editorFonts[fontFamily].style.fontFamily;
+  useEffect(() => {
+    let mounted = true;
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        bulletList: true,
-        orderedList: true,
-        heading: { levels: [1, 2, 3] },
-      }),
-      TextStyle,
-      FontFamily.configure({
-        types: ["textStyle"],
-      }),
-      Underline,
-      Highlight,
-      TextAlign.configure({
-        types: ["heading", "paragraph"],
-      }),
-      Placeholder.configure({
+    async function init() {
+      if (!editorRef.current || quillRef.current) return;
+
+      const QuillModule = await import("quill");
+      const Quill = QuillModule.default;
+
+      const Font = Quill.import("formats/font");
+      Font.whitelist = [
+        "serif",
+        "sans",
+        "mono",
+        "inter",
+        "lora",
+        "merriweather",
+        "source-serif",
+        "plex-sans",
+        "plex-serif",
+      ];
+      Quill.register(Font, true);
+
+      const Size = Quill.import("attributors/style/size");
+      Size.whitelist = [
+        "12px",
+        "14px",
+        "16px",
+        "18px",
+        "20px",
+        "24px",
+        "28px",
+        "32px",
+      ];
+      Quill.register(Size, true);
+
+      const quill = new Quill(editorRef.current, {
+        theme: "snow",
         placeholder,
-      }),
-    ],
-    content,
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        class: "min-h-[220px] text-white outline-none",
-      },
-    },
-    onCreate: ({ editor }) => {
-      editor.commands.setFontFamily(loadedFontFamily);
-    },
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
-    },
-    onSelectionUpdate: ({ editor }) => {
-      const { from, to } = editor.state.selection;
-      setHasSelection(from !== to);
-    },
-  });
+        modules: {
+          toolbar: `#${toolbarId}`,
+        },
+      });
 
-  useEffect(() => {
-    if (!editor) return;
-    if (content !== editor.getHTML()) {
-      editor.commands.setContent(content, { emitUpdate: false });
-      editor.commands.setFontFamily(loadedFontFamily);
+      quill.root.innerHTML = content || "";
+
+      quill.on("text-change", () => {
+        const html = quill.root.innerHTML;
+        lastHtmlRef.current = html;
+        onChange(html);
+      });
+
+      if (!mounted) return;
+      quillRef.current = quill;
+
+      // default formatting on first load
+      quill.format("font", mapFontToQuill(fontFamily));
+      quill.format("size", `${fontSize}px`);
     }
-  }, [content, editor, loadedFontFamily]);
+
+    init();
+
+    return () => {
+      mounted = false;
+    };
+  }, [content, onChange, placeholder, toolbarId, fontFamily, fontSize]);
 
   useEffect(() => {
-    if (!editor) return;
-    editor.chain().focus().setFontFamily(loadedFontFamily).run();
-  }, [editor, loadedFontFamily]);
+    const quill = quillRef.current;
+    if (!quill) return;
 
-  if (!editor) return null;
+    const currentHtml = quill.root.innerHTML;
+    if (content !== currentHtml && content !== lastHtmlRef.current) {
+      quill.root.innerHTML = content || "";
+      lastHtmlRef.current = content;
+    }
+  }, [content]);
 
-  const applyAction = (action: () => void) => {
-    action();
-    editor.commands.focus();
-  };
+  useEffect(() => {
+    const quill = quillRef.current;
+    if (!quill) return;
+
+    quill.format("font", mapFontToQuill(fontFamily));
+  }, [fontFamily]);
+
+  useEffect(() => {
+    const quill = quillRef.current;
+    if (!quill) return;
+
+    quill.format("size", `${fontSize}px`);
+  }, [fontSize]);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleBold().run())}
-          className={toolbarButtonClass(editor.isActive("bold"))}
-          title={hasSelection ? "Apply/remove bold on selection" : "Toggle bold for typing"}
-        >
-          Bold
-        </button>
+      <div
+        id={toolbarId}
+        className="flex flex-wrap gap-2 rounded-xl bg-neutral-900 p-3 border border-neutral-800"
+      >
+        <select className="ql-font bg-neutral-700 text-white rounded px-2 py-2">
+          <option value="serif">Serif</option>
+          <option value="sans">Sans</option>
+          <option value="mono">Mono</option>
+          <option value="inter">Inter</option>
+          <option value="lora">Lora</option>
+          <option value="merriweather">Merriweather</option>
+          <option value="source-serif">Source Serif</option>
+          <option value="plex-sans">IBM Plex Sans</option>
+          <option value="plex-serif">IBM Plex Serif</option>
+        </select>
 
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleItalic().run())}
-          className={toolbarButtonClass(editor.isActive("italic"))}
-          title={hasSelection ? "Apply/remove italic on selection" : "Toggle italic for typing"}
-        >
-          Italic
-        </button>
+        <select className="ql-size bg-neutral-700 text-white rounded px-2 py-2">
+          <option value="12px">12</option>
+          <option value="14px">14</option>
+          <option value="16px">16</option>
+          <option value="18px">18</option>
+          <option value="20px">20</option>
+          <option value="24px">24</option>
+          <option value="28px">28</option>
+          <option value="32px">32</option>
+        </select>
 
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleUnderline().run())}
-          className={toolbarButtonClass(editor.isActive("underline"))}
-          title={hasSelection ? "Apply/remove underline on selection" : "Toggle underline for typing"}
-        >
-          Underline
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleHighlight().run())}
-          className={toolbarButtonClass(editor.isActive("highlight"))}
-        >
-          Highlight
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleBulletList().run())}
-          className={toolbarButtonClass(editor.isActive("bulletList"))}
-        >
-          Bullets
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleOrderedList().run())}
-          className={toolbarButtonClass(editor.isActive("orderedList"))}
-        >
-          Numbered
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleHeading({ level: 1 }).run())}
-          className={toolbarButtonClass(editor.isActive("heading", { level: 1 }))}
-        >
-          H1
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
-          className={toolbarButtonClass(editor.isActive("heading", { level: 2 }))}
-        >
-          H2
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().setParagraph().run())}
-          className={toolbarButtonClass(editor.isActive("paragraph"))}
-        >
-          Paragraph
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().setTextAlign("left").run())}
-          className={toolbarButtonClass(editor.isActive({ textAlign: "left" }))}
-        >
-          Left
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().setTextAlign("center").run())}
-          className={toolbarButtonClass(editor.isActive({ textAlign: "center" }))}
-        >
-          Center
-        </button>
-
-        <button
-          type="button"
-          onClick={() => applyAction(() => editor.chain().focus().setTextAlign("right").run())}
-          className={toolbarButtonClass(editor.isActive({ textAlign: "right" }))}
-        >
-          Right
-        </button>
+        <button className="ql-bold" />
+        <button className="ql-italic" />
+        <button className="ql-underline" />
+        <button className="ql-list" value="ordered" />
+        <button className="ql-list" value="bullet" />
+        <button className="ql-header" value="1" />
+        <button className="ql-header" value="2" />
+        <button className="ql-align" value="" />
+        <button className="ql-align" value="center" />
+        <button className="ql-align" value="right" />
+        <button className="ql-clean" />
       </div>
 
-      <div className="rounded-xl bg-neutral-800 px-4 py-3 docify-editor-content">
+      <div className="rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-800">
         <style jsx global>{`
-          .docify-editor-content .ProseMirror {
-            min-height: 220px;
-            color: white;
-            outline: none;
-            line-height: 1.9;
+          .ql-toolbar.ql-snow {
+            border: 0 !important;
+            background: transparent !important;
+          }
+
+          .ql-container.ql-snow {
+            border: 0 !important;
             font-size: ${fontSize}px;
           }
 
-          .docify-editor-content .ProseMirror p {
-            margin: 0.5rem 0;
+          .ql-editor {
+            min-height: 220px;
+            color: white;
+            line-height: 1.9;
           }
 
-          .docify-editor-content .ProseMirror h1 {
-            font-size: ${Math.max(fontSize + 14, 24)}px;
-            font-weight: 700;
-            line-height: 1.2;
-            margin: 1rem 0 0.75rem 0;
+          .ql-editor.ql-blank::before {
+            color: #9ca3af !important;
+            font-style: normal !important;
           }
 
-          .docify-editor-content .ProseMirror h2 {
-            font-size: ${Math.max(fontSize + 8, 20)}px;
-            font-weight: 700;
-            line-height: 1.3;
-            margin: 0.9rem 0 0.65rem 0;
+          .ql-snow .ql-stroke {
+            stroke: white !important;
           }
 
-          .docify-editor-content .ProseMirror ul {
-            list-style-type: disc;
-            padding-left: 1.5rem;
-            margin: 0.75rem 0;
+          .ql-snow .ql-fill {
+            fill: white !important;
           }
 
-          .docify-editor-content .ProseMirror ol {
-            list-style-type: decimal;
-            padding-left: 1.5rem;
-            margin: 0.75rem 0;
+          .ql-snow .ql-picker {
+            color: white !important;
           }
 
-          .docify-editor-content .ProseMirror li {
-            margin: 0.25rem 0;
+          .ql-font-serif {
+            font-family: Georgia, "Times New Roman", serif;
           }
 
-          .docify-editor-content .ProseMirror mark {
-            background-color: #fde68a;
-            color: black;
-            padding: 0.05rem 0.2rem;
-            border-radius: 0.2rem;
+          .ql-font-sans {
+            font-family: Arial, Helvetica, sans-serif;
+          }
+
+          .ql-font-mono {
+            font-family: Menlo, Monaco, monospace;
+          }
+
+          .ql-font-inter {
+            font-family: Inter, Arial, sans-serif;
+          }
+
+          .ql-font-lora {
+            font-family: Lora, Georgia, serif;
+          }
+
+          .ql-font-merriweather {
+            font-family: Merriweather, Georgia, serif;
+          }
+
+          .ql-font-source-serif {
+            font-family: "Source Serif 4", Georgia, serif;
+          }
+
+          .ql-font-plex-sans {
+            font-family: "IBM Plex Sans", Arial, sans-serif;
+          }
+
+          .ql-font-plex-serif {
+            font-family: "IBM Plex Serif", Georgia, serif;
           }
         `}</style>
 
-        <EditorContent editor={editor} />
+        <div ref={editorRef} />
       </div>
     </div>
   );
+}
+
+function mapFontToQuill(fontFamily: string) {
+  switch (fontFamily) {
+    case "Inter":
+      return "inter";
+    case "Lora":
+      return "lora";
+    case "Merriweather":
+      return "merriweather";
+    case "Source Serif 4":
+      return "source-serif";
+    case "IBM Plex Sans":
+      return "plex-sans";
+    case "IBM Plex Serif":
+      return "plex-serif";
+    default:
+      return "source-serif";
+  }
 }
