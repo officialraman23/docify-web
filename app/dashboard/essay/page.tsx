@@ -27,8 +27,9 @@ export default function EssayPage() {
 
   const [selectedStyle, setSelectedStyle] = useState<"APA" | "MLA">("APA");
   const [credits, setCredits] = useState(10);
-  const [selectedTextPreview, setSelectedTextPreview] = useState("");
+  const [selectedTextPreview] = useState("");
   const [aiResult, setAiResult] = useState("AI output will appear here.");
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   const [bodyParagraphs, setBodyParagraphs] = useState<BodyParagraph[]>([
     { id: crypto.randomUUID(), text: "" },
@@ -109,7 +110,11 @@ export default function EssayPage() {
     );
   };
 
-  const handleFakeCheck = (text: string) => {
+  const callAi = async (
+    text: string,
+    mode: "check" | "improve",
+    cost: number
+  ) => {
     const clean = stripHtml(text);
 
     if (!clean.trim()) {
@@ -117,41 +122,49 @@ export default function EssayPage() {
       return;
     }
 
-    if (credits < 1) {
+    if (credits < cost) {
       setAiResult("Not enough credits. Please buy more.");
       return;
     }
 
-    setCredits((prev) => prev - 1);
-    setAiResult("Check result placeholder: Firebase AI comes next.");
+    try {
+      setIsAiLoading(true);
+      setAiResult(mode === "check" ? "Checking..." : "Improving...");
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: clean,
+          mode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAiResult(data.error || "Something went wrong.");
+        return;
+      }
+
+      setCredits((prev) => prev - cost);
+      setAiResult(data.result || "No response.");
+    } catch (error) {
+      setAiResult("Failed to connect to AI.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleCheck = async (text: string) => {
+    await callAi(text, "check", 1);
   };
 
   const handleImprove = async (text: string) => {
-  if (!text.trim()) {
-    setAiResult("Write something first.");
-    return;
-  }
-
-  if (credits < 2) {
-    setAiResult("Not enough credits.");
-    return;
-  }
-
-  setAiResult("Thinking...");
-
-  const res = await fetch("/api/ai", {
-    method: "POST",
-    body: JSON.stringify({
-      text,
-      mode: "improve",
-    }),
-  });
-
-  const data = await res.json();
-
-  setCredits((prev) => prev - 2);
-  setAiResult(data.result);
-};
+    await callAi(text, "improve", 2);
+  };
 
   return (
     <div className="space-y-6">
@@ -188,12 +201,42 @@ export default function EssayPage() {
               </div>
             </div>
 
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-            <input value={studentNumber} onChange={(e) => setStudentNumber(e.target.value)} placeholder="Student #" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-            <input value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Teacher Name" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-            <input value={course} onChange={(e) => setCourse(e.target.value)} placeholder="Course Name" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-            <input value={date} onChange={(e) => setDate(e.target.value)} placeholder="Date" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Essay Title" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
+            <input
+              value={studentNumber}
+              onChange={(e) => setStudentNumber(e.target.value)}
+              placeholder="Student #"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
+            <input
+              value={teacher}
+              onChange={(e) => setTeacher(e.target.value)}
+              placeholder="Teacher Name"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
+            <input
+              value={course}
+              onChange={(e) => setCourse(e.target.value)}
+              placeholder="Course Name"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
+            <input
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              placeholder="Date"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Essay Title"
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            />
           </div>
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
@@ -205,14 +248,16 @@ export default function EssayPage() {
             />
             <div className="flex gap-3">
               <button
-                onClick={() => handleFakeCheck(introduction)}
-                className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+                onClick={() => handleCheck(introduction)}
+                disabled={isAiLoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
               >
                 Check (-1)
               </button>
               <button
                 onClick={() => handleImprove(introduction)}
-                className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+                disabled={isAiLoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
               >
                 Improve (-2)
               </button>
@@ -252,14 +297,16 @@ export default function EssayPage() {
 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => handleFakeCheck(para.text)}
-                    className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+                    onClick={() => handleCheck(para.text)}
+                    disabled={isAiLoading}
+                    className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
                   >
                     Check (-1)
                   </button>
                   <button
-                    onClick={() => handleFakeImprove(para.text)}
-                    className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+                    onClick={() => handleImprove(para.text)}
+                    disabled={isAiLoading}
+                    className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
                   >
                     Improve (-2)
                   </button>
@@ -277,14 +324,16 @@ export default function EssayPage() {
             />
             <div className="flex gap-3">
               <button
-                onClick={() => handleFakeCheck(conclusion)}
-                className="bg-white text-black px-4 py-2 rounded-xl font-medium"
+                onClick={() => handleCheck(conclusion)}
+                disabled={isAiLoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
               >
                 Check (-1)
               </button>
               <button
-                onClick={() => handleFakeImprove(conclusion)}
-                className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+                onClick={() => handleImprove(conclusion)}
+                disabled={isAiLoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
               >
                 Improve (-2)
               </button>
@@ -340,11 +389,21 @@ export default function EssayPage() {
               {selectedTextPreview || "No text selected yet."}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">Check</button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">Improve</button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">Shorten</button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">Expand</button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">Academic</button>
+              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+                Check
+              </button>
+              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+                Improve
+              </button>
+              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+                Shorten
+              </button>
+              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+                Expand
+              </button>
+              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+                Academic
+              </button>
             </div>
           </div>
 
