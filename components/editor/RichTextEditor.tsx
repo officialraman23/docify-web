@@ -6,6 +6,8 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
+import TextStyle from "@tiptap/extension-text-style";
+import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { useFormatting } from "@/components/editor/FormattingContext";
 import { editorFonts } from "@/lib/editorFonts";
@@ -33,12 +35,18 @@ export default function RichTextEditor({
   const [hasSelection, setHasSelection] = useState(false);
   const { fontFamily, fontSize } = useFormatting();
 
+  const loadedFontFamily = editorFonts[fontFamily].style.fontFamily;
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         bulletList: true,
         orderedList: true,
         heading: { levels: [1, 2, 3] },
+      }),
+      TextStyle,
+      FontFamily.configure({
+        types: ["textStyle"],
       }),
       Underline,
       Highlight,
@@ -56,6 +64,9 @@ export default function RichTextEditor({
         class: "min-h-[220px] text-white outline-none",
       },
     },
+    onCreate: ({ editor }) => {
+      editor.commands.setFontFamily(loadedFontFamily);
+    },
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
     },
@@ -69,8 +80,14 @@ export default function RichTextEditor({
     if (!editor) return;
     if (content !== editor.getHTML()) {
       editor.commands.setContent(content, { emitUpdate: false });
+      editor.commands.setFontFamily(loadedFontFamily);
     }
-  }, [content, editor]);
+  }, [content, editor, loadedFontFamily]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.chain().focus().setFontFamily(loadedFontFamily).run();
+  }, [editor, loadedFontFamily]);
 
   if (!editor) return null;
 
@@ -78,8 +95,6 @@ export default function RichTextEditor({
     action();
     editor.commands.focus();
   };
-
-  const loadedFontFamily = editorFonts[fontFamily].style.fontFamily;
 
   return (
     <div className="space-y-3">
@@ -115,7 +130,6 @@ export default function RichTextEditor({
           type="button"
           onClick={() => applyAction(() => editor.chain().focus().toggleHighlight().run())}
           className={toolbarButtonClass(editor.isActive("highlight"))}
-          title={hasSelection ? "Apply/remove highlight on selection" : "Toggle highlight for typing"}
         >
           Highlight
         </button>
@@ -192,6 +206,7 @@ export default function RichTextEditor({
             color: white;
             outline: none;
             line-height: 1.9;
+            font-size: ${fontSize}px;
           }
 
           .docify-editor-content .ProseMirror p {
@@ -199,12 +214,14 @@ export default function RichTextEditor({
           }
 
           .docify-editor-content .ProseMirror h1 {
+            font-size: ${Math.max(fontSize + 14, 24)}px;
             font-weight: 700;
             line-height: 1.2;
             margin: 1rem 0 0.75rem 0;
           }
 
           .docify-editor-content .ProseMirror h2 {
+            font-size: ${Math.max(fontSize + 8, 20)}px;
             font-weight: 700;
             line-height: 1.3;
             margin: 0.9rem 0 0.65rem 0;
@@ -234,14 +251,7 @@ export default function RichTextEditor({
           }
         `}</style>
 
-        <div
-          style={{
-            fontFamily: loadedFontFamily,
-            fontSize: `${fontSize}px`,
-          }}
-        >
-          <EditorContent editor={editor} />
-        </div>
+        <EditorContent editor={editor} />
       </div>
     </div>
   );
