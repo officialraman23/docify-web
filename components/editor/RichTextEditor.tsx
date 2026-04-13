@@ -7,6 +7,7 @@ type RichTextEditorProps = {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  onSelectionChange?: (selectedText: string) => void;
 };
 
 function getFontFamily(font: string) {
@@ -20,6 +21,7 @@ export default function RichTextEditor({
   content,
   onChange,
   placeholder = "Start writing...",
+  onSelectionChange,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const { font, fontSize } = useFormatting();
@@ -31,6 +33,28 @@ export default function RichTextEditor({
       editorRef.current.innerHTML = content || "";
     }
   }, [content]);
+
+  const emitSelection = () => {
+    if (!editorRef.current || !onSelectionChange) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      onSelectionChange("");
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const editorContainsSelection =
+      editorRef.current.contains(range.commonAncestorContainer);
+
+    if (!editorContainsSelection) {
+      onSelectionChange("");
+      return;
+    }
+
+    const selectedText = selection.toString().trim();
+    onSelectionChange(selectedText);
+  };
 
   const runCommand = (command: string, value?: string) => {
     editorRef.current?.focus();
@@ -44,12 +68,16 @@ export default function RichTextEditor({
           (ul as HTMLElement).style.listStyleType = "disc";
           (ul as HTMLElement).style.paddingLeft = "20px";
         });
+        onChange(editorRef.current?.innerHTML || "");
+        emitSelection();
       }, 0);
-    } else {
-      document.execCommand(command, false, value);
+
+      return;
     }
 
+    document.execCommand(command, false, value);
     onChange(editorRef.current?.innerHTML || "");
+    emitSelection();
   };
 
   const handleInput = () => {
@@ -129,6 +157,9 @@ export default function RichTextEditor({
         contentEditable
         suppressContentEditableWarning
         onInput={handleInput}
+        onMouseUp={emitSelection}
+        onKeyUp={emitSelection}
+        onBlur={emitSelection}
         data-placeholder={placeholder}
         className="w-full min-h-[240px] rounded-2xl bg-neutral-800 text-white px-4 py-4 outline-none overflow-auto"
         style={{

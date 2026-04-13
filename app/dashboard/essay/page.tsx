@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import { useFormatting } from "@/components/editor/FormattingContext";
 
 type BodyParagraph = {
   id: string;
@@ -14,6 +15,8 @@ function stripHtml(html: string) {
 }
 
 export default function EssayPage() {
+  const { font, fontSize } = useFormatting();
+
   const [name, setName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
   const [teacher, setTeacher] = useState("");
@@ -27,7 +30,7 @@ export default function EssayPage() {
 
   const [selectedStyle, setSelectedStyle] = useState<"APA" | "MLA">("APA");
   const [credits, setCredits] = useState(10);
-  const [selectedTextPreview] = useState("");
+  const [selectedTextPreview, setSelectedTextPreview] = useState("");
   const [aiResult, setAiResult] = useState("AI output will appear here.");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
@@ -38,22 +41,33 @@ export default function EssayPage() {
   const referencesTitle =
     selectedStyle === "MLA" ? "Works Cited" : "References";
 
+  const infoEditorPlaceholderStyle = {
+    minHeight: "96px",
+  };
+
   const fullDocumentPreview = useMemo(() => {
     const lines: string[] = [];
 
+    const cleanName = stripHtml(name);
+    const cleanStudentNumber = stripHtml(studentNumber);
+    const cleanTeacher = stripHtml(teacher);
+    const cleanCourse = stripHtml(course);
+    const cleanDate = stripHtml(date);
+    const cleanTitle = stripHtml(title);
+
     if (selectedStyle === "MLA") {
-      if (name) lines.push(name);
-      if (teacher) lines.push(teacher);
-      if (course) lines.push(course);
-      if (date) lines.push(date);
-      if (title) lines.push("", title);
+      if (cleanName) lines.push(cleanName);
+      if (cleanTeacher) lines.push(cleanTeacher);
+      if (cleanCourse) lines.push(cleanCourse);
+      if (cleanDate) lines.push(cleanDate);
+      if (cleanTitle) lines.push("", cleanTitle);
     } else {
-      if (name) lines.push(name);
-      if (studentNumber) lines.push(studentNumber);
-      if (teacher) lines.push(teacher);
-      if (course) lines.push(course);
-      if (date) lines.push(date);
-      if (title) lines.push("", title);
+      if (cleanName) lines.push(cleanName);
+      if (cleanStudentNumber) lines.push(cleanStudentNumber);
+      if (cleanTeacher) lines.push(cleanTeacher);
+      if (cleanCourse) lines.push(cleanCourse);
+      if (cleanDate) lines.push(cleanDate);
+      if (cleanTitle) lines.push("", cleanTitle);
     }
 
     const cleanIntroduction = stripHtml(introduction);
@@ -151,7 +165,7 @@ export default function EssayPage() {
 
       setCredits((prev) => prev - cost);
       setAiResult(data.result || "No response.");
-    } catch (error) {
+    } catch {
       setAiResult("Failed to connect to AI.");
     } finally {
       setIsAiLoading(false);
@@ -166,6 +180,30 @@ export default function EssayPage() {
     await callAi(text, "improve", 2);
   };
 
+  const handleShortenSelected = () => {
+    if (!selectedTextPreview.trim()) {
+      setAiResult("Select some text first.");
+      return;
+    }
+    setAiResult(`Shorten selected text:\n\n${selectedTextPreview}`);
+  };
+
+  const handleExpandSelected = () => {
+    if (!selectedTextPreview.trim()) {
+      setAiResult("Select some text first.");
+      return;
+    }
+    setAiResult(`Expand selected text:\n\n${selectedTextPreview}`);
+  };
+
+  const handleAcademicSelected = () => {
+    if (!selectedTextPreview.trim()) {
+      setAiResult("Select some text first.");
+      return;
+    }
+    setAiResult(`Academic rewrite selected text:\n\n${selectedTextPreview}`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
@@ -177,7 +215,7 @@ export default function EssayPage() {
             </p>
           </div>
 
-          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">Essay Information</h2>
 
@@ -201,42 +239,65 @@ export default function EssayPage() {
               </div>
             </div>
 
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Name"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
-            <input
-              value={studentNumber}
-              onChange={(e) => setStudentNumber(e.target.value)}
-              placeholder="Student #"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
-            <input
-              value={teacher}
-              onChange={(e) => setTeacher(e.target.value)}
-              placeholder="Teacher Name"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
-            <input
-              value={course}
-              onChange={(e) => setCourse(e.target.value)}
-              placeholder="Course Name"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
-            <input
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              placeholder="Date"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Essay Title"
-              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            />
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Name</p>
+              <RichTextEditor
+                content={name}
+                onChange={setName}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write your name..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Student #</p>
+              <RichTextEditor
+                content={studentNumber}
+                onChange={setStudentNumber}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write your student number..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Teacher Name</p>
+              <RichTextEditor
+                content={teacher}
+                onChange={setTeacher}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write your teacher name..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Course Name</p>
+              <RichTextEditor
+                content={course}
+                onChange={setCourse}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write your course name..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Date</p>
+              <RichTextEditor
+                content={date}
+                onChange={setDate}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write the date..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Essay Title</p>
+              <RichTextEditor
+                content={title}
+                onChange={setTitle}
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Write your essay title..."
+              />
+            </div>
           </div>
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
@@ -244,6 +305,7 @@ export default function EssayPage() {
             <RichTextEditor
               content={introduction}
               onChange={setIntroduction}
+              onSelectionChange={setSelectedTextPreview}
               placeholder="Write your introduction..."
             />
             <div className="flex gap-3">
@@ -292,6 +354,7 @@ export default function EssayPage() {
                 <RichTextEditor
                   content={para.text}
                   onChange={(value) => updateParagraph(para.id, value)}
+                  onSelectionChange={setSelectedTextPreview}
                   placeholder={`Write body paragraph ${index + 1}...`}
                 />
 
@@ -320,6 +383,7 @@ export default function EssayPage() {
             <RichTextEditor
               content={conclusion}
               onChange={setConclusion}
+              onSelectionChange={setSelectedTextPreview}
               placeholder="Write your conclusion..."
             />
             <div className="flex gap-3">
@@ -345,6 +409,15 @@ export default function EssayPage() {
             <textarea
               value={references}
               onChange={(e) => setReferences(e.target.value)}
+              style={{
+                fontSize: `${fontSize}px`,
+                fontFamily:
+                  font === "serif"
+                    ? '"Times New Roman", Times, serif'
+                    : font === "sans"
+                    ? "Arial, Helvetica, sans-serif"
+                    : "Menlo, Monaco, monospace",
+              }}
               className="w-full h-36 p-3 bg-neutral-800 rounded-xl outline-none"
               placeholder={`Add ${referencesTitle.toLowerCase()} entries, one per line...`}
             />
@@ -367,11 +440,7 @@ export default function EssayPage() {
             </div>
           </div>
 
-          <DocumentPreview
-            title={title || "Untitled Essay"}
-            styleLabel={selectedStyle}
-            content={fullDocumentPreview}
-          />
+          <DocumentPreview content={fullDocumentPreview} />
         </div>
 
         <div className="space-y-5">
@@ -389,19 +458,36 @@ export default function EssayPage() {
               {selectedTextPreview || "No text selected yet."}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={() => handleCheck(selectedTextPreview)}
+                disabled={isAiLoading}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+              >
                 Check
               </button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={() => handleImprove(selectedTextPreview)}
+                disabled={isAiLoading}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+              >
                 Improve
               </button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={handleShortenSelected}
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
                 Shorten
               </button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={handleExpandSelected}
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
                 Expand
               </button>
-              <button className="bg-neutral-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={handleAcademicSelected}
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
                 Academic
               </button>
             </div>
