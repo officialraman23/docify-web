@@ -1,17 +1,11 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
-
-export type FontFamily =
-  | "Arial"
-  | "Helvetica"
-  | "Verdana"
-  | "Georgia"
-  | "Times New Roman";
+import type { EditorFontName } from "@/lib/editorFonts";
 
 type FormattingContextType = {
-  fontFamily: FontFamily;
-  setFontFamily: (value: FontFamily) => void;
+  fontFamily: EditorFontName;
+  setFontFamily: (value: EditorFontName) => void;
   fontSize: number;
   increaseFontSize: () => void;
   decreaseFontSize: () => void;
@@ -25,7 +19,7 @@ export function FormattingProvider({
   children: React.ReactNode;
 }) {
   const [fontFamily, setFontFamily] =
-    useState<FontFamily>("Times New Roman");
+    useState<EditorFontName>("Source Serif 4");
   const [fontSize, setFontSize] = useState(16);
 
   const increaseFontSize = () => {
