@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useFormatting } from "@/components/editor/FormattingContext";
 
 type RichTextEditorProps = {
@@ -9,189 +9,157 @@ type RichTextEditorProps = {
   placeholder?: string;
 };
 
+function getFontFamily(font: string) {
+  if (font === "serif") return '"Times New Roman", Times, serif';
+  if (font === "sans") return "Arial, Helvetica, sans-serif";
+  if (font === "mono") return "Menlo, Monaco, monospace";
+  return '"Times New Roman", Times, serif';
+}
+
 export default function RichTextEditor({
   content,
   onChange,
   placeholder = "Start writing...",
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const quillRef = useRef<any>(null);
-  const lastHtmlRef = useRef(content);
-  const toolbarId = useId().replace(/:/g, "");
-  const { fontFamily, fontSize } = useFormatting();
+  const { font, fontSize } = useFormatting();
 
   useEffect(() => {
-    let mounted = true;
+    if (!editorRef.current) return;
 
-    async function init() {
-      if (!editorRef.current || quillRef.current) return;
-
-      const QuillModule = await import("quill");
-      const Quill = QuillModule.default;
-
-      const Font = Quill.import("formats/font");
-      Font.whitelist = ["serif", "sans", "monospace"];
-      Quill.register(Font, true);
-
-      const Size = Quill.import("attributors/style/size");
-      Size.whitelist = [
-        "12px",
-        "14px",
-        "16px",
-        "18px",
-        "20px",
-        "24px",
-        "28px",
-        "32px",
-      ];
-      Quill.register(Size, true);
-
-      const quill = new Quill(editorRef.current, {
-        theme: "snow",
-        placeholder,
-        modules: {
-          toolbar: `#${toolbarId}`,
-        },
-        formats: [
-          "font",
-          "size",
-          "bold",
-          "italic",
-          "underline",
-          "header",
-          "list",
-          "bullet",
-          "align",
-          "image",
-        ],
-      });
-
-      quill.root.innerHTML = content || "";
-
-      quill.on("text-change", () => {
-        const html = quill.root.innerHTML;
-        lastHtmlRef.current = html;
-        onChange(html);
-      });
-
-      if (!mounted) return;
-      quillRef.current = quill;
-
-      // apply initial font + size to all content
-      const length = quill.getLength();
-      quill.formatText(0, length, "font", fontFamily);
-      quill.formatText(0, length, "size", `${fontSize}px`);
-    }
-
-    init();
-
-    return () => {
-      mounted = false;
-    };
-  }, [content, onChange, placeholder, toolbarId]);
-
-  useEffect(() => {
-    const quill = quillRef.current;
-    if (!quill) return;
-
-    const currentHtml = quill.root.innerHTML;
-    if (content !== currentHtml && content !== lastHtmlRef.current) {
-      quill.root.innerHTML = content || "";
-      lastHtmlRef.current = content;
+    if (editorRef.current.innerHTML !== content) {
+      editorRef.current.innerHTML = content || "";
     }
   }, [content]);
 
-  useEffect(() => {
-    const quill = quillRef.current;
-    if (!quill) return;
+  const runCommand = (command: string, value?: string) => {
+    editorRef.current?.focus();
 
-    const length = quill.getLength();
-    quill.formatText(0, length, "font", fontFamily);
-  }, [fontFamily]);
+    if (command === "insertUnorderedList") {
+      document.execCommand("insertUnorderedList", false);
 
-  useEffect(() => {
-    const quill = quillRef.current;
-    if (!quill) return;
+      setTimeout(() => {
+        const lists = editorRef.current?.querySelectorAll("ul");
+        lists?.forEach((ul) => {
+          (ul as HTMLElement).style.listStyleType = "disc";
+          (ul as HTMLElement).style.paddingLeft = "20px";
+        });
+      }, 0);
+    } else {
+      document.execCommand(command, false, value);
+    }
 
-    const length = quill.getLength();
-    quill.formatText(0, length, "size", `${fontSize}px`);
-  }, [fontSize]);
+    onChange(editorRef.current?.innerHTML || "");
+  };
+
+  const handleInput = () => {
+    onChange(editorRef.current?.innerHTML || "");
+  };
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => runCommand("bold")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Bold
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("italic")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Italic
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("underline")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Underline
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("insertUnorderedList")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Bullets
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("insertOrderedList")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Numbered
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("justifyLeft")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Left
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("justifyCenter")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Center
+        </button>
+
+        <button
+          type="button"
+          onClick={() => runCommand("justifyRight")}
+          className="bg-neutral-700 px-3 py-2 rounded-lg"
+        >
+          Right
+        </button>
+      </div>
+
       <div
-        id={toolbarId}
-        className="flex flex-wrap gap-2 rounded-xl bg-neutral-900 p-3 border border-neutral-800"
-      >
-        <select className="ql-font bg-neutral-700 text-white rounded px-2 py-2">
-          <option value="serif">Serif</option>
-          <option value="sans">Sans</option>
-          <option value="monospace">Monospace</option>
-        </select>
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        data-placeholder={placeholder}
+        className="w-full min-h-[240px] rounded-2xl bg-neutral-800 text-white px-4 py-4 outline-none overflow-auto"
+        style={{
+          fontFamily: getFontFamily(font),
+          fontSize: `${fontSize}px`,
+          lineHeight: 1.9,
+        }}
+      />
 
-        <select className="ql-size bg-neutral-700 text-white rounded px-2 py-2">
-          <option value="12px">12</option>
-          <option value="14px">14</option>
-          <option value="16px">16</option>
-          <option value="18px">18</option>
-          <option value="20px">20</option>
-          <option value="24px">24</option>
-          <option value="28px">28</option>
-          <option value="32px">32</option>
-        </select>
+      <style jsx>{`
+        div[contenteditable="true"]:empty:before {
+          content: attr(data-placeholder);
+          color: #9ca3af;
+        }
 
-        <button className="ql-bold" />
-        <button className="ql-italic" />
-        <button className="ql-underline" />
-        <button className="ql-list" value="ordered" />
-        <button className="ql-list" value="bullet" />
-        <button className="ql-header" value="1" />
-        <button className="ql-header" value="2" />
-        <button className="ql-align" value="" />
-        <button className="ql-align" value="center" />
-        <button className="ql-align" value="right" />
-        <button className="ql-clean" />
-      </div>
+        div[contenteditable="true"] ul {
+          list-style-type: disc;
+          padding-left: 20px;
+          margin: 10px 0;
+        }
 
-      <div className="rounded-2xl overflow-hidden border border-neutral-800 bg-white">
-        <style jsx global>{`
-          .ql-toolbar.ql-snow {
-            border: 0 !important;
-            background: #f8fafc !important;
-            border-bottom: 1px solid #e5e7eb !important;
-          }
+        div[contenteditable="true"] ol {
+          list-style-type: decimal;
+          padding-left: 20px;
+          margin: 10px 0;
+        }
 
-          .ql-container.ql-snow {
-            border: 0 !important;
-          }
-
-          .ql-editor {
-            min-height: 240px;
-            color: #111827;
-            line-height: 1.9;
-            background: white;
-          }
-
-          .ql-editor.ql-blank::before {
-            color: #9ca3af !important;
-            font-style: normal !important;
-          }
-
-          .ql-font-serif {
-            font-family: Georgia, "Times New Roman", serif;
-          }
-
-          .ql-font-sans {
-            font-family: Arial, Helvetica, sans-serif;
-          }
-
-          .ql-font-monospace {
-            font-family: Menlo, Monaco, monospace;
-          }
-        `}</style>
-
-        <div ref={editorRef} />
-      </div>
+        div[contenteditable="true"] li {
+          margin: 4px 0;
+        }
+      `}</style>
     </div>
   );
 }

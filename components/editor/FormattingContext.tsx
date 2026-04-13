@@ -2,14 +2,14 @@
 
 import { createContext, useContext, useState } from "react";
 
-export type EditorFontName = "serif" | "sans" | "monospace";
+export type EditorFont = "serif" | "sans" | "mono";
 
 type FormattingContextType = {
-  fontFamily: EditorFontName;
-  setFontFamily: (value: EditorFontName) => void;
+  font: EditorFont;
+  setFont: (value: EditorFont) => void;
   fontSize: number;
-  increaseFontSize: () => void;
-  decreaseFontSize: () => void;
+  increaseFont: () => void;
+  decreaseFont: () => void;
 };
 
 const FormattingContext = createContext<FormattingContextType | null>(null);
@@ -19,25 +19,25 @@ export function FormattingProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [fontFamily, setFontFamily] = useState<EditorFontName>("serif");
+  const [font, setFont] = useState<EditorFont>("serif");
   const [fontSize, setFontSize] = useState(16);
 
-  const increaseFontSize = () => {
+  const increaseFont = () => {
     setFontSize((prev) => Math.min(prev + 1, 32));
   };
 
-  const decreaseFontSize = () => {
+  const decreaseFont = () => {
     setFontSize((prev) => Math.max(prev - 1, 10));
   };
 
   return (
     <FormattingContext.Provider
       value={{
-        fontFamily,
-        setFontFamily,
+        font,
+        setFont,
         fontSize,
-        increaseFontSize,
-        decreaseFontSize,
+        increaseFont,
+        decreaseFont,
       }}
     >
       {children}

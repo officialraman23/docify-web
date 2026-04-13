@@ -126,22 +126,32 @@ export default function EssayPage() {
     setAiResult("Check result placeholder: Firebase AI comes next.");
   };
 
-  const handleFakeImprove = (text: string) => {
-    const clean = stripHtml(text);
+  const handleImprove = async (text: string) => {
+  if (!text.trim()) {
+    setAiResult("Write something first.");
+    return;
+  }
 
-    if (!clean.trim()) {
-      setAiResult("Please write something first.");
-      return;
-    }
+  if (credits < 2) {
+    setAiResult("Not enough credits.");
+    return;
+  }
 
-    if (credits < 2) {
-      setAiResult("Not enough credits. Please buy more.");
-      return;
-    }
+  setAiResult("Thinking...");
 
-    setCredits((prev) => prev - 2);
-    setAiResult("Improve result placeholder: Firebase AI comes next.");
-  };
+  const res = await fetch("/api/ai", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      mode: "improve",
+    }),
+  });
+
+  const data = await res.json();
+
+  setCredits((prev) => prev - 2);
+  setAiResult(data.result);
+};
 
   return (
     <div className="space-y-6">
@@ -201,7 +211,7 @@ export default function EssayPage() {
                 Check (-1)
               </button>
               <button
-                onClick={() => handleFakeImprove(introduction)}
+                onClick={() => handleImprove(introduction)}
                 className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
               >
                 Improve (-2)
