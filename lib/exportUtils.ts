@@ -2,22 +2,27 @@ import jsPDF from "jspdf";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
 
-type ExportEssayArgs = {
-  title: string;
+type ExportArgs = {
+  fileName: string;
   content: string;
 };
 
 function cleanLines(content: string) {
   return content
+    .replace(/\r\n/g, "\n")
     .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter((line) => line.length > 0);
+    .map((line) => line.replace(/\u00A0/g, ""))
+    .map((line) => line.replace(/\s+$/g, ""))
+    .filter((line, index, arr) => {
+      if (line.trim().length > 0) return true;
+      return index !== 0 && index !== arr.length - 1;
+    });
 }
 
-export async function exportEssayToPdf({
-  title,
+export async function exportTextToPdf({
+  fileName,
   content,
-}: ExportEssayArgs) {
+}: ExportArgs) {
   const pdf = new jsPDF({
     unit: "pt",
     format: "a4",
@@ -28,7 +33,8 @@ export async function exportEssayToPdf({
 
   const marginX = 56;
   const marginTop = 60;
-  const lineHeight = 22;
+  const marginBottom = 60;
+  const lineHeight = 24;
   const maxWidth = pageWidth - marginX * 2;
 
   let y = marginTop;
@@ -36,84 +42,63 @@ export async function exportEssayToPdf({
   pdf.setFont("times", "normal");
   pdf.setFontSize(12);
 
-  const finalTitle = title.trim() || "Untitled Essay";
-  const wrappedTitle = pdf.splitTextToSize(finalTitle, maxWidth);
-
-  wrappedTitle.forEach((line: string) => {
-    if (y > pageHeight - 60) {
-      pdf.addPage();
-      y = marginTop;
-    }
-    pdf.text(line, pageWidth / 2, y, { align: "center" });
-    y += lineHeight;
-  });
-
-  y += 10;
-
   const lines = cleanLines(content);
 
   for (const line of lines) {
-    const wrapped = pdf.splitTextToSize(line, maxWidth);
+    const printableLine = line.length === 0 ? " " : line;
+    const wrappedLines =
+      line.length === 0 ? [""] : pdf.splitTextToSize(printableLine, maxWidth);
 
-    for (const wrappedLine of wrapped) {
-      if (y > pageHeight - 60) {
+    for (const wrappedLine of wrappedLines) {
+      if (y > pageHeight - marginBottom) {
         pdf.addPage();
         y = marginTop;
+        pdf.setFont("times", "normal");
+        pdf.setFontSize(12);
       }
 
-      pdf.text(wrappedLine, marginX, y);
+      if (wrappedLine !== "") {
+        pdf.text(wrappedLine, marginX, y);
+      }
+
       y += lineHeight;
     }
-
-    y += 8;
   }
 
-  pdf.save(`${finalTitle}.pdf`);
+  pdf.save(`${fileName}.pdf`);
 }
 
-export async function exportEssayToDocx({
-  title,
+export async function exportTextToDocx({
+  fileName,
   content,
-}: ExportEssayArgs) {
-  const finalTitle = title.trim() || "Untitled Essay";
+}: ExportArgs) {
   const lines = cleanLines(content);
+
+  const children = lines.map(
+    (line) =>
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: line,
+            size: 24, // 12pt
+          }),
+        ],
+        spacing: {
+          after: 0,
+          line: 480, // double spacing
+        },
+      })
+  );
 
   const doc = new Document({
     sections: [
       {
         properties: {},
-        children: [
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: finalTitle,
-                bold: true,
-                size: 28,
-              }),
-            ],
-            spacing: {
-              after: 240,
-            },
-          }),
-          ...lines.map(
-            (line) =>
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: line,
-                    size: 24,
-                  }),
-                ],
-                spacing: {
-                  after: 180,
-                },
-              })
-          ),
-        ],
+        children,
       },
     ],
   });
 
   const blob = await Packer.toBlob(doc);
-  saveAs(blob, `${finalTitle}.docx`);
+  saveAs(blob, `${fileName}.docx`);
 }

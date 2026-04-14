@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import { useFormatting } from "@/components/editor/FormattingContext";
+import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
 
 type BodyParagraph = {
   id: string;
@@ -40,10 +41,6 @@ export default function EssayPage() {
 
   const referencesTitle =
     selectedStyle === "MLA" ? "Works Cited" : "References";
-
-  const infoEditorPlaceholderStyle = {
-    minHeight: "96px",
-  };
 
   const fullDocumentPreview = useMemo(() => {
     const lines: string[] = [];
@@ -202,6 +199,69 @@ export default function EssayPage() {
       return;
     }
     setAiResult(`Academic rewrite selected text:\n\n${selectedTextPreview}`);
+  };
+
+  const buildEssayLibraryPayload = () => ({
+    id: crypto.randomUUID(),
+    title: stripHtml(title) || "Untitled Essay",
+    style: selectedStyle,
+    createdAt: new Date().toISOString().slice(0, 10),
+    content: fullDocumentPreview,
+  });
+
+  const handleExportPdf = async () => {
+    await exportTextToPdf({
+      fileName: (stripHtml(title) || "essay")
+        .replace(/\s+/g, "-")
+        .toLowerCase(),
+      content: fullDocumentPreview,
+    });
+  };
+
+  const handleExportDocx = async () => {
+    await exportTextToDocx({
+      fileName: (stripHtml(title) || "essay")
+        .replace(/\s+/g, "-")
+        .toLowerCase(),
+      content: fullDocumentPreview,
+    });
+  };
+
+  const handleShare = async () => {
+    const shareText = fullDocumentPreview.trim();
+
+    if (!shareText) {
+      setAiResult("Write something first before sharing.");
+      return;
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: stripHtml(title) || "Essay",
+          text: shareText,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareText);
+      setAiResult("Essay copied to clipboard.");
+    } catch {
+      setAiResult("Sharing failed.");
+    }
+  };
+
+  const handleSaveToLibrary = () => {
+    const payload = buildEssayLibraryPayload();
+    const existingRaw = localStorage.getItem("docify_library");
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+
+    localStorage.setItem(
+      "docify_library",
+      JSON.stringify([payload, ...existing])
+    );
+
+    setAiResult("Essay saved to library.");
   };
 
   return (
@@ -425,16 +485,31 @@ export default function EssayPage() {
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
             <div className="flex flex-wrap gap-3">
-              <button className="bg-green-600 px-4 py-3 rounded-xl font-medium">
+              <button
+                onClick={handleExportPdf}
+                className="bg-green-600 px-4 py-3 rounded-xl font-medium"
+              >
                 Export PDF
               </button>
-              <button className="bg-blue-600 px-4 py-3 rounded-xl font-medium">
+
+              <button
+                onClick={handleExportDocx}
+                className="bg-blue-600 px-4 py-3 rounded-xl font-medium"
+              >
                 Export DOCX
               </button>
-              <button className="bg-neutral-700 px-4 py-3 rounded-xl font-medium">
+
+              <button
+                onClick={handleShare}
+                className="bg-neutral-700 px-4 py-3 rounded-xl font-medium"
+              >
                 Share
               </button>
-              <button className="bg-orange-500 px-4 py-3 rounded-xl font-medium">
+
+              <button
+                onClick={handleSaveToLibrary}
+                className="bg-orange-500 px-4 py-3 rounded-xl font-medium"
+              >
                 Save to Library
               </button>
             </div>

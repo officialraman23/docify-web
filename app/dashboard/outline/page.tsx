@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import DocumentPreview from "@/components/editor/DocumentPreview";
+import RichTextEditor from "@/components/editor/RichTextEditor";
 
 type OutlineParagraph = {
   id: string;
@@ -9,9 +11,20 @@ type OutlineParagraph = {
   anecdote: string;
 };
 
+function stripHtml(html: string) {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+}
+
 export default function OutlinePage() {
   const [selectedStyle, setSelectedStyle] = useState<"APA" | "MLA">("APA");
   const [credits, setCredits] = useState(10);
+
+  const [name, setName] = useState("");
+  const [studentNumber, setStudentNumber] = useState("");
+  const [teacher, setTeacher] = useState("");
+  const [course, setCourse] = useState("");
+  const [date, setDate] = useState("");
+  const [outlineTitle, setOutlineTitle] = useState("");
 
   const [hook, setHook] = useState("");
   const [topicIntroduction, setTopicIntroduction] = useState("");
@@ -46,10 +59,435 @@ export default function OutlinePage() {
   const [importance2, setImportance2] = useState("");
   const [recommendation1, setRecommendation1] = useState("");
 
-  const [referenceEntries, setReferenceEntries] = useState("");
-  const [aiResult, setAiResult] = useState("Outline AI output will appear here.");
+  const [referenceEntries, setReferenceEntries] = useState<string[]>([""]);
+  const [sourceFields, setSourceFields] = useState<string[]>([""]);
 
-  const referencesTitle = selectedStyle === "MLA" ? "Works Cited" : "References";
+  const [fieldAIResult, setFieldAIResult] = useState(
+    "Outline AI output will appear here."
+  );
+  const [citationAIResult, setCitationAIResult] = useState(
+    "Citation helper output will appear here."
+  );
+  const [generatedEssay, setGeneratedEssay] = useState(
+    "Generated essay will appear here."
+  );
+
+  const [isFieldAILoading, setIsFieldAILoading] = useState(false);
+  const [isCitationAILoading, setIsCitationAILoading] = useState(false);
+  const [isEssayGenerating, setIsEssayGenerating] = useState(false);
+
+  const [selectedTextPreview, setSelectedTextPreview] = useState("");
+  const [activeSectionLabel, setActiveSectionLabel] =
+    useState("No field selected");
+
+  const referencesTitle =
+    selectedStyle === "MLA" ? "Works Cited" : "References";
+
+  const outlinePreview = useMemo(() => {
+    const lines: string[] = [];
+
+    if (selectedStyle === "MLA") {
+      if (stripHtml(name)) lines.push(stripHtml(name));
+      if (stripHtml(teacher)) lines.push(stripHtml(teacher));
+      if (stripHtml(course)) lines.push(stripHtml(course));
+      if (stripHtml(date)) lines.push(stripHtml(date));
+      if (stripHtml(outlineTitle)) lines.push("", stripHtml(outlineTitle));
+    } else {
+      if (stripHtml(name)) lines.push(stripHtml(name));
+      if (stripHtml(studentNumber)) lines.push(stripHtml(studentNumber));
+      if (stripHtml(teacher)) lines.push(stripHtml(teacher));
+      if (stripHtml(course)) lines.push(stripHtml(course));
+      if (stripHtml(date)) lines.push(stripHtml(date));
+      if (stripHtml(outlineTitle)) lines.push("", stripHtml(outlineTitle));
+    }
+
+    if (
+      stripHtml(hook) ||
+      stripHtml(topicIntroduction) ||
+      stripHtml(definition) ||
+      stripHtml(historicalInformation) ||
+      stripHtml(thesisStatement)
+    ) {
+      lines.push("", "Introduction");
+
+      if (stripHtml(hook)) lines.push(`Hook: ${stripHtml(hook)}`);
+      if (stripHtml(topicIntroduction)) {
+        lines.push(`Topic introduction: ${stripHtml(topicIntroduction)}`);
+      }
+      if (stripHtml(definition)) {
+        lines.push(`Definition: ${stripHtml(definition)}`);
+      }
+      if (stripHtml(historicalInformation)) {
+        lines.push(
+          `Historical information: ${stripHtml(historicalInformation)}`
+        );
+      }
+      if (stripHtml(thesisStatement)) {
+        lines.push(`Thesis statement: ${stripHtml(thesisStatement)}`);
+      }
+    }
+
+    paragraphs.forEach((paragraph, index) => {
+      const hasContent =
+        stripHtml(paragraph.topicSentence) ||
+        paragraph.evidences.some((evidence) => stripHtml(evidence)) ||
+        stripHtml(paragraph.anecdote);
+
+      if (!hasContent) return;
+
+      lines.push("", `Body Paragraph ${index + 1}`);
+
+      if (stripHtml(paragraph.topicSentence)) {
+        lines.push(`Topic sentence: ${stripHtml(paragraph.topicSentence)}`);
+      }
+
+      paragraph.evidences.forEach((evidence, evidenceIndex) => {
+        if (stripHtml(evidence)) {
+          lines.push(`Evidence ${evidenceIndex + 1}: ${stripHtml(evidence)}`);
+        }
+      });
+
+      if (stripHtml(paragraph.anecdote)) {
+        lines.push(`Anecdote: ${stripHtml(paragraph.anecdote)}`);
+      }
+    });
+
+    if (
+      stripHtml(restatementOfThesis) ||
+      stripHtml(summaryOfDiscussion) ||
+      stripHtml(importance1) ||
+      stripHtml(importance2) ||
+      stripHtml(recommendation1)
+    ) {
+      lines.push("", "Conclusion");
+
+      if (stripHtml(restatementOfThesis)) {
+        lines.push(
+          `Restatement of thesis: ${stripHtml(restatementOfThesis)}`
+        );
+      }
+      if (stripHtml(summaryOfDiscussion)) {
+        lines.push(
+          `Summary of discussion: ${stripHtml(summaryOfDiscussion)}`
+        );
+      }
+      if (stripHtml(importance1)) {
+        lines.push(`Importance point 1: ${stripHtml(importance1)}`);
+      }
+      if (stripHtml(importance2)) {
+        lines.push(`Importance point 2: ${stripHtml(importance2)}`);
+      }
+      if (stripHtml(recommendation1)) {
+        lines.push(`Recommendation: ${stripHtml(recommendation1)}`);
+      }
+    }
+
+    const cleanedReferences = referenceEntries
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (cleanedReferences.length) {
+      lines.push("", referencesTitle);
+      cleanedReferences.forEach((entry) => lines.push(entry));
+    }
+
+    return lines.join("\n");
+  }, [
+    selectedStyle,
+    name,
+    studentNumber,
+    teacher,
+    course,
+    date,
+    outlineTitle,
+    hook,
+    topicIntroduction,
+    definition,
+    historicalInformation,
+    thesisStatement,
+    paragraphs,
+    restatementOfThesis,
+    summaryOfDiscussion,
+    importance1,
+    importance2,
+    recommendation1,
+    referenceEntries,
+    referencesTitle,
+  ]);
+
+  const callAi = async (
+    text: string,
+    mode: "check" | "improve",
+    cost: number,
+    resultSetter: (value: string) => void,
+    loadingSetter: (value: boolean) => void
+  ) => {
+    const clean = stripHtml(text);
+
+    if (!clean.trim()) {
+      resultSetter("Please write something first.");
+      return;
+    }
+
+    if (credits < cost) {
+      resultSetter("Not enough credits. Please buy more.");
+      return;
+    }
+
+    try {
+      loadingSetter(true);
+      resultSetter(mode === "check" ? "Checking..." : "Improving...");
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: clean,
+          mode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        resultSetter(data.error || "Something went wrong.");
+        return;
+      }
+
+      setCredits((prev) => prev - cost);
+      resultSetter(data.result || "No response.");
+    } catch {
+      resultSetter("Failed to connect to AI.");
+    } finally {
+      loadingSetter(false);
+    }
+  };
+
+  const callFieldAI = async (
+    text: string,
+    mode: "check" | "improve",
+    context: string
+  ) => {
+    await callAi(
+      `${context}\n\n${text}`,
+      mode,
+      mode === "improve" ? 2 : 1,
+      setFieldAIResult,
+      setIsFieldAILoading
+    );
+  };
+
+  const runSourceAI = async (
+    index: number,
+    mode: "check" | "format" | "intext"
+  ) => {
+    const text = sourceFields[index]?.trim();
+
+    if (!text) {
+      setCitationAIResult("Please enter source details first.");
+      return;
+    }
+
+    const cost = mode === "format" ? 3 : 2;
+
+    await callAi(
+      `${mode.toUpperCase()} citation in ${selectedStyle} style:\n\n${text}`,
+      "improve",
+      cost,
+      setCitationAIResult,
+      setIsCitationAILoading
+    );
+  };
+
+  const generateFullReferencesPage = async () => {
+    const cleanedSources = sourceFields.map((s) => s.trim()).filter(Boolean);
+
+    if (cleanedSources.length === 0) {
+      setCitationAIResult("Please add at least one source first.");
+      return;
+    }
+
+    if (credits < 5) {
+      setCitationAIResult("Not enough credits.");
+      return;
+    }
+
+    try {
+      setIsCitationAILoading(true);
+      setCitationAIResult(`Generating full ${referencesTitle} page...`);
+
+      const prompt = `Generate a full ${referencesTitle} page in ${selectedStyle} style using these sources:\n\n${cleanedSources
+        .map((source, i) => `Source ${i + 1}: ${source}`)
+        .join("\n\n")}`;
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: prompt,
+          mode: "improve",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setCitationAIResult(data.error || "Something went wrong.");
+        return;
+      }
+
+      setCredits((prev) => prev - 5);
+      setCitationAIResult(data.result || "No response.");
+
+      const lines = (data.result || "")
+        .split("\n")
+        .map((line: string) => line.trim())
+        .filter(Boolean);
+
+      if (lines.length) {
+        setReferenceEntries(lines);
+      }
+    } catch {
+      setCitationAIResult("Failed to connect to AI.");
+    } finally {
+      setIsCitationAILoading(false);
+    }
+  };
+
+  const generateEssayFromOutline = async () => {
+    if (credits < 8) {
+      setGeneratedEssay("Not enough credits. Please buy more.");
+      return;
+    }
+
+    const introBlock = `
+Hook: ${stripHtml(hook)}
+Topic introduction: ${stripHtml(topicIntroduction)}
+Definition: ${stripHtml(definition)}
+Historical information: ${stripHtml(historicalInformation)}
+Thesis statement: ${stripHtml(thesisStatement)}
+`.trim();
+
+    const bodyBlock = paragraphs
+      .map((paragraph, index) => {
+        const evidenceText = paragraph.evidences
+          .map(
+            (evidence, evidenceIndex) =>
+              `Evidence ${evidenceIndex + 1}: ${stripHtml(evidence)}`
+          )
+          .join("\n");
+
+        return `
+Body Paragraph ${index + 1}:
+Topic sentence: ${stripHtml(paragraph.topicSentence)}
+${evidenceText}
+Anecdote: ${stripHtml(paragraph.anecdote)}
+`.trim();
+      })
+      .join("\n\n");
+
+    const conclusionBlock = `
+Restatement of thesis: ${stripHtml(restatementOfThesis)}
+Summary of discussion: ${stripHtml(summaryOfDiscussion)}
+Importance point 1: ${stripHtml(importance1)}
+Importance point 2: ${stripHtml(importance2)}
+Recommendation: ${stripHtml(recommendation1)}
+`.trim();
+
+    const referencesBlock = referenceEntries
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join("\n");
+
+    const prompt = `
+Using this academic outline, generate a full essay in ${selectedStyle} style.
+
+Requirements:
+- Write a clear introduction, body paragraphs, and conclusion.
+- Follow the outline closely.
+- Keep the argument structured and coherent.
+- Do not invent fake citations.
+- If references are provided, keep them separate at the end under ${referencesTitle}.
+- Return only the final essay text.
+
+INTRODUCTION OUTLINE:
+${introBlock}
+
+BODY OUTLINE:
+${bodyBlock}
+
+CONCLUSION OUTLINE:
+${conclusionBlock}
+
+${referencesTitle.toUpperCase()}:
+${referencesBlock}
+`.trim();
+
+    try {
+      setIsEssayGenerating(true);
+      setGeneratedEssay("Generating essay from outline...");
+
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: prompt,
+          mode: "improve",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setGeneratedEssay(data.error || "Something went wrong.");
+        return;
+      }
+
+      setCredits((prev) => prev - 8);
+      setGeneratedEssay(data.result || "No response.");
+    } catch {
+      setGeneratedEssay("Failed to connect to AI.");
+    } finally {
+      setIsEssayGenerating(false);
+    }
+  };
+
+  const updateParagraphField = (
+    paragraphIndex: number,
+    field: "topicSentence" | "anecdote",
+    value: string
+  ) => {
+    setParagraphs((prev) =>
+      prev.map((paragraph, index) =>
+        index === paragraphIndex ? { ...paragraph, [field]: value } : paragraph
+      )
+    );
+  };
+
+  const updateEvidence = (
+    paragraphIndex: number,
+    evidenceIndex: number,
+    value: string
+  ) => {
+    setParagraphs((prev) =>
+      prev.map((paragraph, index) =>
+        index === paragraphIndex
+          ? {
+              ...paragraph,
+              evidences: paragraph.evidences.map((evidence, i) =>
+                i === evidenceIndex ? value : evidence
+              ),
+            }
+          : paragraph
+      )
+    );
+  };
 
   const addParagraph = () => {
     setParagraphs((prev) => [
@@ -64,271 +502,906 @@ export default function OutlinePage() {
   };
 
   const removeParagraph = (id: string) => {
-    setParagraphs((prev) => prev.filter((p) => p.id !== id));
+    setParagraphs((prev) => prev.filter((paragraph) => paragraph.id !== id));
   };
 
-  const updateParagraph = (
-    id: string,
-    field: "topicSentence" | "anecdote",
-    value: string
-  ) => {
+  const addEvidence = (paragraphIndex: number) => {
     setParagraphs((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
+      prev.map((paragraph, index) =>
+        index === paragraphIndex
+          ? { ...paragraph, evidences: [...paragraph.evidences, ""] }
+          : paragraph
+      )
     );
   };
 
-  const updateEvidence = (id: string, evidenceIndex: number, value: string) => {
+  const removeEvidence = (paragraphIndex: number, evidenceIndex: number) => {
     setParagraphs((prev) =>
-      prev.map((p) =>
-        p.id === id
+      prev.map((paragraph, index) =>
+        index === paragraphIndex
           ? {
-              ...p,
-              evidences: p.evidences.map((e, i) =>
-                i === evidenceIndex ? value : e
+              ...paragraph,
+              evidences: paragraph.evidences.filter(
+                (_, i) => i !== evidenceIndex
               ),
             }
-          : p
+          : paragraph
       )
     );
-  };
-
-  const addEvidence = (id: string) => {
-    setParagraphs((prev) =>
-      prev.map((p) =>
-        p.id === id ? { ...p, evidences: [...p.evidences, ""] } : p
-      )
-    );
-  };
-
-  const removeEvidence = (id: string, evidenceIndex: number) => {
-    setParagraphs((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              evidences: p.evidences.filter((_, i) => i !== evidenceIndex),
-            }
-          : p
-      )
-    );
-  };
-
-  const handleFakeCheck = (text: string) => {
-    if (!text.trim()) {
-      setAiResult("Please write something first.");
-      return;
-    }
-
-    if (credits < 1) {
-      setAiResult("Not enough credits. Please buy more.");
-      return;
-    }
-
-    setCredits((prev) => prev - 1);
-    setAiResult("Check result placeholder for outline. Firebase AI comes next.");
-  };
-
-  const handleFakeImprove = (text: string) => {
-    if (!text.trim()) {
-      setAiResult("Please write something first.");
-      return;
-    }
-
-    if (credits < 2) {
-      setAiResult("Not enough credits. Please buy more.");
-      return;
-    }
-
-    setCredits((prev) => prev - 2);
-    setAiResult("Improve result placeholder for outline. Firebase AI comes next.");
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Outline Builder</h1>
-          <p className="text-gray-400 mt-2">
-            Build structured outlines before generating the essay.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+        <h1 className="text-3xl font-bold">Outline</h1>
+        <p className="text-gray-400">
+          Build your essay outline, improve sections with AI, and generate
+          citations from sources.
+        </p>
+        <p className="text-sm text-blue-400">
+          Currently Editing: {activeSectionLabel}
+        </p>
+      </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Style</h2>
+      <div className="bg-neutral-900 p-5 rounded-2xl flex flex-wrap gap-3">
+        <button
+          onClick={generateEssayFromOutline}
+          disabled={isEssayGenerating}
+          className="bg-purple-600 px-4 py-3 rounded-xl font-medium disabled:opacity-60"
+        >
+          Generate Essay from Outline (-8)
+        </button>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => setSelectedStyle("APA")}
-                className={`px-3 py-1 rounded-lg ${
-                  selectedStyle === "APA" ? "bg-blue-500" : "bg-neutral-800"
-                }`}
-              >
-                APA
-              </button>
-              <button
-                onClick={() => setSelectedStyle("MLA")}
-                className={`px-3 py-1 rounded-lg ${
-                  selectedStyle === "MLA" ? "bg-blue-500" : "bg-neutral-800"
-                }`}
-              >
-                MLA
-              </button>
-            </div>
+        <button className="bg-green-600 px-4 py-3 rounded-xl font-medium">
+          Export Outline
+        </button>
+
+        <button className="bg-blue-600 px-4 py-3 rounded-xl font-medium">
+          Export Generated Essay
+        </button>
+      </div>
+
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Outline Information</h2>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSelectedStyle("APA")}
+              className={`px-3 py-1 rounded-lg ${
+                selectedStyle === "APA" ? "bg-blue-500" : "bg-neutral-800"
+              }`}
+            >
+              APA
+            </button>
+            <button
+              onClick={() => setSelectedStyle("MLA")}
+              className={`px-3 py-1 rounded-lg ${
+                selectedStyle === "MLA" ? "bg-blue-500" : "bg-neutral-800"
+              }`}
+            >
+              MLA
+            </button>
           </div>
         </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <h2 className="text-xl font-semibold">Introduction</h2>
-
-          <input value={hook} onChange={(e) => setHook(e.target.value)} placeholder="Hook" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-          <input value={topicIntroduction} onChange={(e) => setTopicIntroduction(e.target.value)} placeholder="Topic introduction" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-          <input value={definition} onChange={(e) => setDefinition(e.target.value)} placeholder="Definition" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-          <input value={historicalInformation} onChange={(e) => setHistoricalInformation(e.target.value)} placeholder="Historical information" className="w-full p-3 bg-neutral-800 rounded-xl outline-none" />
-
-          <textarea
-            value={thesisStatement}
-            onChange={(e) => setThesisStatement(e.target.value)}
-            className="w-full h-32 p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder="Thesis statement"
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Name</p>
+          <RichTextEditor
+            content={name}
+            onChange={setName}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write your name..."
           />
+        </div>
 
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Student #</p>
+          <RichTextEditor
+            content={studentNumber}
+            onChange={setStudentNumber}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write your student number..."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Teacher Name</p>
+          <RichTextEditor
+            content={teacher}
+            onChange={setTeacher}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write your teacher name..."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Course Name</p>
+          <RichTextEditor
+            content={course}
+            onChange={setCourse}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write your course name..."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Date</p>
+          <RichTextEditor
+            content={date}
+            onChange={setDate}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write the date..."
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Outline Title</p>
+          <RichTextEditor
+            content={outlineTitle}
+            onChange={setOutlineTitle}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Write your outline title..."
+          />
+        </div>
+      </div>
+
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
+        <h2 className="text-xl font-semibold">Introduction</h2>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Hook</p>
+          <input
+            value={hook}
+            onChange={(e) => setHook(e.target.value)}
+            onFocus={() => setActiveSectionLabel("Hook")}
+            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            placeholder="Hook"
+          />
           <div className="flex gap-3">
-            <button onClick={() => handleFakeCheck(thesisStatement)} className="bg-white text-black px-4 py-2 rounded-xl font-medium">
+            <button
+              onClick={() => callFieldAI(hook, "check", "Hook")}
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
               Check (-1)
             </button>
-            <button onClick={() => handleFakeImprove(thesisStatement)} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
+            <button
+              onClick={() => callFieldAI(hook, "improve", "Hook")}
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
               Improve (-2)
             </button>
           </div>
         </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Body Paragraphs</h2>
-            <button onClick={addParagraph} className="bg-blue-500 px-4 py-2 rounded-xl font-medium">
-              Add Paragraph
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Topic introduction</p>
+          <input
+            value={topicIntroduction}
+            onChange={(e) => setTopicIntroduction(e.target.value)}
+            onFocus={() => setActiveSectionLabel("Topic introduction")}
+            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            placeholder="Topic introduction"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(topicIntroduction, "check", "Topic introduction")
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(
+                  topicIntroduction,
+                  "improve",
+                  "Topic introduction"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
             </button>
           </div>
-
-          {paragraphs.map((paragraph, paragraphIndex) => (
-            <div key={paragraph.id} className="bg-neutral-800 rounded-2xl p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Body Paragraph {paragraphIndex + 1}</h3>
-                {paragraphs.length > 1 && (
-                  <button
-                    onClick={() => removeParagraph(paragraph.id)}
-                    className="text-red-400 text-sm"
-                  >
-                    Remove Paragraph
-                  </button>
-                )}
-              </div>
-
-              <input
-                value={paragraph.topicSentence}
-                onChange={(e) => updateParagraph(paragraph.id, "topicSentence", e.target.value)}
-                placeholder="Topic sentence"
-                className="w-full p-3 bg-neutral-700 rounded-xl outline-none"
-              />
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">Supporting Evidence</p>
-                  <button
-                    onClick={() => addEvidence(paragraph.id)}
-                    className="bg-neutral-700 px-3 py-2 rounded-lg text-sm"
-                  >
-                    Add Evidence
-                  </button>
-                </div>
-
-                {paragraph.evidences.map((evidence, evidenceIndex) => (
-                  <div key={evidenceIndex} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-gray-300">
-                        Evidence {evidenceIndex + 1}
-                      </p>
-
-                      {paragraph.evidences.length > 2 && (
-                        <button
-                          onClick={() => removeEvidence(paragraph.id, evidenceIndex)}
-                          className="text-red-400 text-xs"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-
-                    <textarea
-                      value={evidence}
-                      onChange={(e) =>
-                        updateEvidence(paragraph.id, evidenceIndex, e.target.value)
-                      }
-                      className="w-full h-24 p-3 bg-neutral-700 rounded-xl outline-none"
-                      placeholder={`Evidence ${evidenceIndex + 1}`}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <textarea
-                value={paragraph.anecdote}
-                onChange={(e) => updateParagraph(paragraph.id, "anecdote", e.target.value)}
-                className="w-full h-24 p-3 bg-neutral-700 rounded-xl outline-none"
-                placeholder="Anecdote"
-              />
-            </div>
-          ))}
         </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <h2 className="text-xl font-semibold">Conclusion</h2>
-
-          <textarea value={restatementOfThesis} onChange={(e) => setRestatementOfThesis(e.target.value)} className="w-full h-24 p-3 bg-neutral-800 rounded-xl outline-none" placeholder="Restatement of thesis" />
-          <textarea value={summaryOfDiscussion} onChange={(e) => setSummaryOfDiscussion(e.target.value)} className="w-full h-24 p-3 bg-neutral-800 rounded-xl outline-none" placeholder="Summary of discussion" />
-          <textarea value={importance1} onChange={(e) => setImportance1(e.target.value)} className="w-full h-24 p-3 bg-neutral-800 rounded-xl outline-none" placeholder="Why is this topic important? Point 1" />
-          <textarea value={importance2} onChange={(e) => setImportance2(e.target.value)} className="w-full h-24 p-3 bg-neutral-800 rounded-xl outline-none" placeholder="Why is this topic important? Point 2" />
-          <textarea value={recommendation1} onChange={(e) => setRecommendation1(e.target.value)} className="w-full h-24 p-3 bg-neutral-800 rounded-xl outline-none" placeholder="Recommendation / Suggestion / Advice" />
-        </div>
-
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <h2 className="text-xl font-semibold">{referencesTitle}</h2>
-          <textarea
-            value={referenceEntries}
-            onChange={(e) => setReferenceEntries(e.target.value)}
-            className="w-full h-36 p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder={`Add ${referencesTitle.toLowerCase()} entries, one per line...`}
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Definition</p>
+          <input
+            value={definition}
+            onChange={(e) => setDefinition(e.target.value)}
+            onFocus={() => setActiveSectionLabel("Definition")}
+            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            placeholder="Definition"
           />
+          <div className="flex gap-3">
+            <button
+              onClick={() => callFieldAI(definition, "check", "Definition")}
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() => callFieldAI(definition, "improve", "Definition")}
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Historical information</p>
+          <input
+            value={historicalInformation}
+            onChange={(e) => setHistoricalInformation(e.target.value)}
+            onFocus={() => setActiveSectionLabel("Historical information")}
+            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+            placeholder="Historical information"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(
+                  historicalInformation,
+                  "check",
+                  "Historical information"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(
+                  historicalInformation,
+                  "improve",
+                  "Historical information"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">
+            Thesis statement (your claim and three reasons)
+          </p>
+          <RichTextEditor
+            content={thesisStatement}
+            onChange={setThesisStatement}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Thesis statement (your claim and three reasons)"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(thesisStatement, "check", "Thesis statement")
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(thesisStatement, "improve", "Thesis statement")
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="space-y-5">
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <h3 className="text-lg font-semibold">Credits</h3>
-          <p className="text-3xl font-bold">{credits}</p>
-          <button className="w-full bg-blue-500 px-4 py-3 rounded-xl font-medium">
-            Buy Credits
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold">Body Paragraphs</h2>
+          <button
+            onClick={addParagraph}
+            className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+          >
+            Add Paragraph
           </button>
         </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <h3 className="text-lg font-semibold">Outline AI Result</h3>
-          <p className="text-sm text-gray-300 whitespace-pre-wrap">
-            {aiResult}
+        {paragraphs.map((paragraph, paragraphIndex) => (
+          <div
+            key={paragraph.id}
+            className="bg-neutral-900 p-5 rounded-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold">{`${
+                paragraphIndex + 1
+              }${
+                paragraphIndex === 0
+                  ? "st"
+                  : paragraphIndex === 1
+                  ? "nd"
+                  : paragraphIndex === 2
+                  ? "rd"
+                  : "th"
+              } Body Paragraph`}</h3>
+              {paragraphs.length > 1 && (
+                <button
+                  onClick={() => removeParagraph(paragraph.id)}
+                  className="text-red-400 text-sm"
+                >
+                  Remove Paragraph
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Topic sentence</p>
+              <input
+                value={paragraph.topicSentence}
+                onChange={(e) =>
+                  updateParagraphField(
+                    paragraphIndex,
+                    "topicSentence",
+                    e.target.value
+                  )
+                }
+                onFocus={() =>
+                  setActiveSectionLabel(
+                    `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                  )
+                }
+                className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+                placeholder="Topic sentence"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() =>
+                    callFieldAI(
+                      paragraph.topicSentence,
+                      "check",
+                      `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                    )
+                  }
+                  disabled={isFieldAILoading}
+                  className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                >
+                  Check (-1)
+                </button>
+                <button
+                  onClick={() =>
+                    callFieldAI(
+                      paragraph.topicSentence,
+                      "improve",
+                      `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                    )
+                  }
+                  disabled={isFieldAILoading}
+                  className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                >
+                  Improve (-2)
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-semibold">
+                  Supporting points / Evidence
+                </p>
+                <button
+                  onClick={() => addEvidence(paragraphIndex)}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg"
+                >
+                  Add Evidence
+                </button>
+              </div>
+
+              {paragraph.evidences.map((evidence, evidenceIndex) => (
+                <div key={evidenceIndex} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-400">{`Evidence ${
+                      evidenceIndex + 1
+                    } (quote/source)`}</p>
+                    {paragraph.evidences.length > 2 && (
+                      <button
+                        onClick={() =>
+                          removeEvidence(paragraphIndex, evidenceIndex)
+                        }
+                        className="text-red-400 text-sm"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <RichTextEditor
+                    content={evidence}
+                    onChange={(value) =>
+                      updateEvidence(paragraphIndex, evidenceIndex, value)
+                    }
+                    onSelectionChange={setSelectedTextPreview}
+                    placeholder={`Evidence ${
+                      evidenceIndex + 1
+                    } (quote/source)`}
+                  />
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() =>
+                        callFieldAI(
+                          evidence,
+                          "check",
+                          `Evidence ${
+                            evidenceIndex + 1
+                          } for Body Paragraph ${paragraphIndex + 1}`
+                        )
+                      }
+                      disabled={isFieldAILoading}
+                      className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                    >
+                      Check (-1)
+                    </button>
+                    <button
+                      onClick={() =>
+                        callFieldAI(
+                          evidence,
+                          "improve",
+                          `Evidence ${
+                            evidenceIndex + 1
+                          } for Body Paragraph ${paragraphIndex + 1}`
+                        )
+                      }
+                      disabled={isFieldAILoading}
+                      className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                    >
+                      Improve (-2)
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Anecdote</p>
+              <RichTextEditor
+                content={paragraph.anecdote}
+                onChange={(value) =>
+                  updateParagraphField(paragraphIndex, "anecdote", value)
+                }
+                onSelectionChange={setSelectedTextPreview}
+                placeholder="Anecdote"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() =>
+                    callFieldAI(
+                      paragraph.anecdote,
+                      "check",
+                      `Body Paragraph ${paragraphIndex + 1} Anecdote`
+                    )
+                  }
+                  disabled={isFieldAILoading}
+                  className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                >
+                  Check (-1)
+                </button>
+                <button
+                  onClick={() =>
+                    callFieldAI(
+                      paragraph.anecdote,
+                      "improve",
+                      `Body Paragraph ${paragraphIndex + 1} Anecdote`
+                    )
+                  }
+                  disabled={isFieldAILoading}
+                  className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                >
+                  Improve (-2)
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
+        <h2 className="text-xl font-semibold">Conclusion</h2>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Restatement of thesis</p>
+          <RichTextEditor
+            content={restatementOfThesis}
+            onChange={setRestatementOfThesis}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Restatement of thesis"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(
+                  restatementOfThesis,
+                  "check",
+                  "Restatement of thesis"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(
+                  restatementOfThesis,
+                  "improve",
+                  "Restatement of thesis"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">Summary of what you discussed</p>
+          <RichTextEditor
+            content={summaryOfDiscussion}
+            onChange={setSummaryOfDiscussion}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Summary of what you discussed"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(
+                  summaryOfDiscussion,
+                  "check",
+                  "Summary of discussion"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(
+                  summaryOfDiscussion,
+                  "improve",
+                  "Summary of discussion"
+                )
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">
+            Why is this topic important? Point 1
           </p>
+          <RichTextEditor
+            content={importance1}
+            onChange={setImportance1}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Why is this topic important? Point 1"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(importance1, "check", "Importance point 1")
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(importance1, "improve", "Importance point 1")
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
         </div>
 
-        <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-          <button className="w-full bg-purple-600 px-4 py-3 rounded-xl font-medium">
-            Generate Essay from Outline (-8)
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">
+            Why is this topic important? Point 2
+          </p>
+          <RichTextEditor
+            content={importance2}
+            onChange={setImportance2}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Why is this topic important? Point 2"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(importance2, "check", "Importance point 2")
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(importance2, "improve", "Importance point 2")
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-gray-400">
+            Recommendation / Suggestion / Advice
+          </p>
+          <RichTextEditor
+            content={recommendation1}
+            onChange={setRecommendation1}
+            onSelectionChange={setSelectedTextPreview}
+            placeholder="Recommendation / Suggestion / Advice"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() =>
+                callFieldAI(recommendation1, "check", "Recommendation")
+              }
+              disabled={isFieldAILoading}
+              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Check (-1)
+            </button>
+            <button
+              onClick={() =>
+                callFieldAI(recommendation1, "improve", "Recommendation")
+              }
+              disabled={isFieldAILoading}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+            >
+              Improve (-2)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
+        <h2 className="text-xl font-semibold">{referencesTitle}</h2>
+
+        {referenceEntries.map((entry, index) => (
+          <div key={index} className="space-y-2">
+            <textarea
+              value={entry}
+              onChange={(e) =>
+                setReferenceEntries((prev) =>
+                  prev.map((item, i) => (i === index ? e.target.value : item))
+                )
+              }
+              className="w-full h-28 p-3 bg-neutral-800 rounded-xl outline-none"
+              placeholder={`${referencesTitle} entry ${index + 1}`}
+            />
+          </div>
+        ))}
+
+        <button
+          onClick={() => setReferenceEntries((prev) => [...prev, ""])}
+          className="bg-neutral-800 px-4 py-2 rounded-xl"
+        >
+          Add Reference Entry
+        </button>
+      </div>
+
+      <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Citation Helper</h2>
+          <button
+            onClick={() => setSourceFields((prev) => [...prev, ""])}
+            className="bg-neutral-800 px-4 py-2 rounded-xl"
+          >
+            Add Source Field
           </button>
-          <button className="w-full bg-green-600 px-4 py-3 rounded-xl font-medium">
-            Export Outline
-          </button>
-          <button className="w-full bg-blue-600 px-4 py-3 rounded-xl font-medium">
-            Export Generated Essay
-          </button>
+        </div>
+
+        <p className="text-gray-400">
+          Paste links, raw source details, article info, or book details. Use AI
+          to generate in-text citations or a full {referencesTitle} page.
+        </p>
+
+        {sourceFields.map((source, index) => (
+          <div
+            key={index}
+            className="bg-neutral-800 p-4 rounded-2xl space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <p className="font-semibold">Source {index + 1}</p>
+              {sourceFields.length > 1 && (
+                <button
+                  onClick={() =>
+                    setSourceFields((prev) =>
+                      prev.filter((_, i) => i !== index)
+                    )
+                  }
+                  className="text-red-400 text-sm"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+
+            <textarea
+              value={source}
+              onChange={(e) =>
+                setSourceFields((prev) =>
+                  prev.map((item, i) => (i === index ? e.target.value : item))
+                )
+              }
+              onFocus={() => setActiveSectionLabel(`Source ${index + 1}`)}
+              className="w-full h-28 p-3 bg-neutral-900 rounded-xl outline-none"
+              placeholder={`Source ${index + 1}`}
+            />
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => runSourceAI(index, "check")}
+                disabled={isCitationAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check Citation (-2)
+              </button>
+              <button
+                onClick={() => runSourceAI(index, "format")}
+                disabled={isCitationAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Format Citation (-3)
+              </button>
+              <button
+                onClick={() => runSourceAI(index, "intext")}
+                disabled={isCitationAILoading}
+                className="bg-purple-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                In-Text Citation (-2)
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <button
+          onClick={generateFullReferencesPage}
+          disabled={isCitationAILoading}
+          className="bg-green-600 px-4 py-3 rounded-xl font-medium disabled:opacity-60"
+        >
+          Generate Full {referencesTitle} Page (-5)
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
+        <div className="space-y-5">
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Outline Preview</h3>
+            <DocumentPreview content={outlinePreview} />
+          </div>
+
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Outline AI Result</h3>
+            <p className="text-sm text-gray-300 whitespace-pre-wrap">
+              {fieldAIResult}
+            </p>
+          </div>
+
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Citation Helper Result</h3>
+            <p className="text-sm text-gray-300 whitespace-pre-wrap">
+              {citationAIResult}
+            </p>
+          </div>
+
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Generated Essay</h3>
+            <p className="text-sm text-gray-300 whitespace-pre-wrap">
+              {generatedEssay}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Credits</h3>
+            <p className="text-3xl font-bold">{credits}</p>
+          </div>
+
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">Selected Text</h3>
+            <p className="text-sm text-gray-400 whitespace-pre-wrap">
+              {selectedTextPreview || "No text selected"}
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() =>
+                  callFieldAI(selectedTextPreview, "check", "Selected text")
+                }
+                disabled={isFieldAILoading}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+              >
+                Check
+              </button>
+              <button
+                onClick={() =>
+                  callFieldAI(selectedTextPreview, "improve", "Selected text")
+                }
+                disabled={isFieldAILoading}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+              >
+                Improve
+              </button>
+              <button
+                onClick={() =>
+                  setFieldAIResult(
+                    `Shorten:\n\n${
+                      selectedTextPreview || "Select text first."
+                    }`
+                  )
+                }
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
+                Shorten
+              </button>
+              <button
+                onClick={() =>
+                  setFieldAIResult(
+                    `Expand:\n\n${
+                      selectedTextPreview || "Select text first."
+                    }`
+                  )
+                }
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
+                Expand
+              </button>
+              <button
+                onClick={() =>
+                  setFieldAIResult(
+                    `Academic rewrite:\n\n${
+                      selectedTextPreview || "Select text first."
+                    }`
+                  )
+                }
+                className="bg-neutral-800 px-3 py-2 rounded-lg"
+              >
+                Academic
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
