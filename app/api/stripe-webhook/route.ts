@@ -1,61 +1,97 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: Request) {
+  const sig = req.headers.get("stripe-signature");
+
+  if (!sig) {
+    console.error("❌ Missing stripe-signature header");
+    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  }
+
+  let event: Stripe.Event;
+
   try {
-    const body = await req.json();
-    const event = body;
+    const rawBody = Buffer.from(await req.arrayBuffer());
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (err) {
+    console.error("❌ Webhook signature error:", err);
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
 
+  try {
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+      const session = event.data.object as Stripe.Checkout.Session;
 
-      const priceId = session?.line_items?.[0]?.price?.id;
+      console.log("🔥 checkout.session.completed:", session.id);
 
-      console.log("payment completed for priceId:", priceId);
+      // Later when you add auth, pass uid in checkout metadata.
+      // For now, fallback to a placeholder user doc.
+      const uid = session.metadata?.uid || session.client_reference_id || "test-user";
 
-      // 🔥 find matching pack
-      const packsSnapshot = await adminDb.collection("creditPacks").get();
-      const packs = packsSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+        limit: 1,
+      });
 
-      const matched: any = packs.find(
-        (p: any) => p.stripePriceId === priceId
-      );
+      const priceId = lineItems.data?.[0]?.price?.id;
 
-      if (!matched) {
-        console.log("no matching pack found");
-        return NextResponse.json({ ok: true });
+      if (!priceId) {
+        console.log("❌ No priceId found in line items for session:", session.id);
+        return NextResponse.json({ received: true });
       }
 
-      const creditsToAdd = matched.credits;
-      console.log("credits to add:", creditsToAdd);
+      console.log("✅ priceId from webhook:", priceId);
 
-      // ⚠️ TEMP USER (until login system)
-      const userRef = adminDb.collection("users").doc("test-user");
+      // Match Firestore credit pack by stripePriceId (must be a PRICE id, not prod id)
+      const packSnap = await adminDb
+        .collection("creditPacks")
+        .where("stripePriceId", "==", priceId)
+        .limit(1)
+        .get();
 
-      const userDoc = await userRef.get();
-
-      if (!userDoc.exists) {
-        await userRef.set({
-          credits: creditsToAdd,
-        });
-      } else {
-        await userRef.update({
-          credits: (userDoc.data()?.credits || 0) + creditsToAdd,
-        });
+      if (packSnap.empty) {
+        console.log("❌ No matching credit pack for priceId:", priceId);
+        return NextResponse.json({ received: true });
       }
 
-      console.log("credits updated successfully");
+      const pack = packSnap.docs[0].data() as { credits?: number; name?: string };
+      const creditsToAdd = Number(pack.credits || 0);
+
+      if (!creditsToAdd) {
+        console.log("❌ Matched pack has 0 credits. priceId:", priceId);
+        return NextResponse.json({ received: true });
+      }
+
+      console.log("✅ Adding credits:", creditsToAdd, "to uid:", uid);
+
+      await adminDb
+        .collection("users")
+        .doc(uid)
+        .set(
+          {
+            credits: FieldValue.increment(creditsToAdd),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+      console.log("🎉 Credits updated for:", uid);
     }
 
     return NextResponse.json({ received: true });
   } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
+    console.error("❌ WEBHOOK ERROR:", err);
     return NextResponse.json({ error: "webhook failed" }, { status: 500 });
   }
 }
