@@ -11,13 +11,16 @@ const stripe = new Stripe(stripeSecretKey);
 
 export async function POST(req: Request) {
   try {
-    const { priceId } = await req.json();
+    const { priceId, uid } = await req.json();
 
-    console.log("incoming priceId:", priceId);
-    console.log(
-      "secret key prefix:",
-      stripeSecretKey.startsWith("sk_live_") ? "live" : "test"
-    );
+    if (!priceId) {
+      return NextResponse.json(
+        { error: "Missing priceId" },
+        { status: 400 }
+      );
+    }
+
+    const safeUid = uid || "test-user";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -28,6 +31,11 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
+      client_reference_id: safeUid,
+      metadata: {
+        uid: safeUid,
+        priceId: String(priceId),
+      },
       success_url:
         "http://localhost:3000/dashboard/essay?payment=success&session_id={CHECKOUT_SESSION_ID}",
       cancel_url:
@@ -35,10 +43,12 @@ export async function POST(req: Request) {
     });
 
     console.log("checkout session created:", session.id);
+    console.log("checkout metadata:", session.metadata);
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
     console.error("STRIPE CHECKOUT ERROR:", error);
+
     return NextResponse.json(
       {
         error: error?.message || "Stripe checkout failed",

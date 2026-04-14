@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -36,42 +36,36 @@ export async function POST(req: Request) {
 
       console.log("🔥 checkout.session.completed:", session.id);
 
-      // Later when you add auth, pass uid in checkout metadata.
-      // For now, fallback to a placeholder user doc.
-      const uid = session.metadata?.uid || session.client_reference_id || "test-user";
+      const metadata = session.metadata as any;
+      console.log("FULL METADATA:", metadata);
 
-      const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
-        limit: 1,
-      });
+      const uid =
+        metadata?.uid ||
+        session.client_reference_id ||
+        "test-user";
 
-      const priceId = lineItems.data?.[0]?.price?.id;
+      const priceId = metadata?.priceId;
+
+      console.log("✅ priceId from metadata:", priceId);
 
       if (!priceId) {
-        console.log("❌ No priceId found in line items for session:", session.id);
+        console.log("❌ No priceId found in session metadata");
         return NextResponse.json({ received: true });
       }
 
-      console.log("✅ priceId from webhook:", priceId);
-
-      // Match Firestore credit pack by stripePriceId (must be a PRICE id, not prod id)
-      const packSnap = await adminDb
+      const snapshot = await adminDb
         .collection("creditPacks")
         .where("stripePriceId", "==", priceId)
         .limit(1)
         .get();
 
-      if (packSnap.empty) {
+      if (snapshot.empty) {
         console.log("❌ No matching credit pack for priceId:", priceId);
         return NextResponse.json({ received: true });
       }
 
-      const pack = packSnap.docs[0].data() as { credits?: number; name?: string };
-      const creditsToAdd = Number(pack.credits || 0);
-
-      if (!creditsToAdd) {
-        console.log("❌ Matched pack has 0 credits. priceId:", priceId);
-        return NextResponse.json({ received: true });
-      }
+      const packDoc = snapshot.docs[0].data();
+      const creditsToAdd = Number(packDoc.credits ?? 0);
 
       console.log("✅ Adding credits:", creditsToAdd, "to uid:", uid);
 
@@ -81,7 +75,6 @@ export async function POST(req: Request) {
         .set(
           {
             credits: FieldValue.increment(creditsToAdd),
-            updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
         );

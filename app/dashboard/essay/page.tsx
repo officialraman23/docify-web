@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import { useFormatting } from "@/components/editor/FormattingContext";
 import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 
 type BodyParagraph = {
   id: string;
@@ -19,6 +20,7 @@ type CreditPack = {
   credits: number;
   price: number;
   isActive: boolean;
+  stripePriceId?: string;
 };
 
 function stripHtml(html: string) {
@@ -27,6 +29,7 @@ function stripHtml(html: string) {
 
 export default function EssayPage() {
   const { font, fontSize } = useFormatting();
+  const searchParams = useSearchParams();
 
   const [name, setName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
@@ -40,7 +43,7 @@ export default function EssayPage() {
   const [references, setReferences] = useState("");
 
   const [selectedStyle, setSelectedStyle] = useState<"APA" | "MLA">("APA");
-  const [credits, setCredits] = useState(10);
+  const [credits, setCredits] = useState(0);
   const [selectedTextPreview, setSelectedTextPreview] = useState("");
   const [aiResult, setAiResult] = useState("AI output will appear here.");
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -51,6 +54,29 @@ export default function EssayPage() {
 
   const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
   const [showBuyCredits, setShowBuyCredits] = useState(false);
+
+  const getCurrentUid = () => {
+    if (typeof window === "undefined") return "test-user";
+    return localStorage.getItem("docify_uid") || "test-user";
+  };
+
+  const loadUserCredits = async () => {
+    try {
+      const uid = getCurrentUid();
+      const userRef = doc(db, "users", uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        setCredits(Number(data.credits ?? 0));
+        console.log("loaded credits:", data.credits);
+      } else {
+        setCredits(0);
+      }
+    } catch (err) {
+      console.error("credits fetch error:", err);
+    }
+  };
 
   useEffect(() => {
     const loadCreditPacks = async () => {
@@ -84,7 +110,21 @@ export default function EssayPage() {
     };
 
     loadCreditPacks();
+    loadUserCredits();
   }, []);
+
+  useEffect(() => {
+    const status = searchParams.get("payment");
+
+    if (status === "success") {
+      setAiResult("Payment successful. Updating credits...");
+      loadUserCredits();
+    }
+
+    if (status === "cancelled") {
+      setAiResult("Payment cancelled.");
+    }
+  }, [searchParams]);
 
   const referencesTitle =
     selectedStyle === "MLA" ? "Works Cited" : "References";
@@ -313,29 +353,35 @@ export default function EssayPage() {
     setAiResult("Essay saved to library.");
   };
 
-  const handlePackClick = async (pack: any) => {
-  try {
-    const res = await fetch("/api/stripe-checkout", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        priceId: pack.stripePriceId,
-      }),
-    });
+  const handlePackClick = async (pack: CreditPack) => {
+    try {
+      if (!pack.stripePriceId) {
+        setAiResult("Missing Stripe price ID");
+        return;
+      }
 
-    const data = await res.json();
+      const res = await fetch("/api/stripe-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          priceId: pack.stripePriceId,
+          uid: getCurrentUid(),
+        }),
+      });
 
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
-      setAiResult("Failed to start checkout.");
+      const data = await res.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setAiResult(data.error || "Checkout failed");
+      }
+    } catch {
+      setAiResult("Stripe error");
     }
-  } catch {
-    setAiResult("Stripe checkout error.");
-  }
-};
+  };
 
   return (
     <>
