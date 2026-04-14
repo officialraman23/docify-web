@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
+import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
 
 type OutlineParagraph = {
   id: string;
@@ -458,6 +459,170 @@ ${referencesBlock}
     }
   };
 
+  const buildOutlineLibraryPayload = () => ({
+    id: crypto.randomUUID(),
+    title: stripHtml(outlineTitle) || "Untitled Outline",
+    style: selectedStyle,
+    createdAt: new Date().toISOString().slice(0, 10),
+    content: outlinePreview,
+    type: "outline",
+  });
+
+  const buildGeneratedEssayLibraryPayload = () => ({
+    id: crypto.randomUUID(),
+    title: `${stripHtml(outlineTitle) || "Untitled Outline"} - Generated Essay`,
+    style: selectedStyle,
+    createdAt: new Date().toISOString().slice(0, 10),
+    content: generatedEssay,
+    type: "essay",
+  });
+
+  const handleExportOutlinePdf = async () => {
+    if (!outlinePreview.trim()) {
+      setFieldAIResult("Write something first before exporting the outline.");
+      return;
+    }
+
+    await exportTextToPdf({
+      fileName: (stripHtml(outlineTitle) || "outline")
+        .replace(/\s+/g, "-")
+        .toLowerCase(),
+      content: outlinePreview,
+    });
+  };
+
+  const handleExportOutlineDocx = async () => {
+    if (!outlinePreview.trim()) {
+      setFieldAIResult("Write something first before exporting the outline.");
+      return;
+    }
+
+    await exportTextToDocx({
+      fileName: (stripHtml(outlineTitle) || "outline")
+        .replace(/\s+/g, "-")
+        .toLowerCase(),
+      content: outlinePreview,
+    });
+  };
+
+  const handleExportGeneratedEssayPdf = async () => {
+    const cleanEssay = generatedEssay.trim();
+
+    if (!cleanEssay || cleanEssay === "Generated essay will appear here.") {
+      setGeneratedEssay("Generate the essay first before exporting.");
+      return;
+    }
+
+    await exportTextToPdf({
+      fileName: `${(stripHtml(outlineTitle) || "generated-essay")
+        .replace(/\s+/g, "-")
+        .toLowerCase()}-generated`,
+      content: cleanEssay,
+    });
+  };
+
+  const handleExportGeneratedEssayDocx = async () => {
+    const cleanEssay = generatedEssay.trim();
+
+    if (!cleanEssay || cleanEssay === "Generated essay will appear here.") {
+      setGeneratedEssay("Generate the essay first before exporting.");
+      return;
+    }
+
+    await exportTextToDocx({
+      fileName: `${(stripHtml(outlineTitle) || "generated-essay")
+        .replace(/\s+/g, "-")
+        .toLowerCase()}-generated`,
+      content: cleanEssay,
+    });
+  };
+
+  const handleShareOutline = async () => {
+    const shareText = outlinePreview.trim();
+
+    if (!shareText) {
+      setFieldAIResult("Write something first before sharing the outline.");
+      return;
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: stripHtml(outlineTitle) || "Outline",
+          text: shareText,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareText);
+      setFieldAIResult("Outline copied to clipboard.");
+    } catch {
+      setFieldAIResult("Sharing outline failed.");
+    }
+  };
+
+  const handleShareGeneratedEssay = async () => {
+    const shareText = generatedEssay.trim();
+
+    if (!shareText || shareText === "Generated essay will appear here.") {
+      setGeneratedEssay("Generate the essay first before sharing.");
+      return;
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${stripHtml(outlineTitle) || "Outline"} - Generated Essay`,
+          text: shareText,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareText);
+      setGeneratedEssay("Generated essay copied to clipboard.");
+    } catch {
+      setGeneratedEssay("Sharing generated essay failed.");
+    }
+  };
+
+  const handleSaveOutlineToLibrary = () => {
+    if (!outlinePreview.trim()) {
+      setFieldAIResult("Write something first before saving the outline.");
+      return;
+    }
+
+    const payload = buildOutlineLibraryPayload();
+    const existingRaw = localStorage.getItem("docify_library");
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+
+    localStorage.setItem(
+      "docify_library",
+      JSON.stringify([payload, ...existing])
+    );
+
+    setFieldAIResult("Outline saved to library.");
+  };
+
+  const handleSaveGeneratedEssayToLibrary = () => {
+    const cleanEssay = generatedEssay.trim();
+
+    if (!cleanEssay || cleanEssay === "Generated essay will appear here.") {
+      setGeneratedEssay("Generate the essay first before saving.");
+      return;
+    }
+
+    const payload = buildGeneratedEssayLibraryPayload();
+    const existingRaw = localStorage.getItem("docify_library");
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+
+    localStorage.setItem(
+      "docify_library",
+      JSON.stringify([payload, ...existing])
+    );
+
+    setGeneratedEssay("Generated essay saved to library.");
+  };
+
   const updateParagraphField = (
     paragraphIndex: number,
     field: "topicSentence" | "anecdote",
@@ -552,12 +717,60 @@ ${referencesBlock}
           Generate Essay from Outline (-8)
         </button>
 
-        <button className="bg-green-600 px-4 py-3 rounded-xl font-medium">
-          Export Outline
+        <button
+          onClick={handleExportOutlinePdf}
+          className="bg-green-600 px-4 py-3 rounded-xl font-medium"
+        >
+          Export Outline PDF
         </button>
 
-        <button className="bg-blue-600 px-4 py-3 rounded-xl font-medium">
-          Export Generated Essay
+        <button
+          onClick={handleExportOutlineDocx}
+          className="bg-blue-600 px-4 py-3 rounded-xl font-medium"
+        >
+          Export Outline DOCX
+        </button>
+
+        <button
+          onClick={handleShareOutline}
+          className="bg-neutral-700 px-4 py-3 rounded-xl font-medium"
+        >
+          Share Outline
+        </button>
+
+        <button
+          onClick={handleSaveOutlineToLibrary}
+          className="bg-orange-500 px-4 py-3 rounded-xl font-medium"
+        >
+          Save Outline to Library
+        </button>
+
+        <button
+          onClick={handleExportGeneratedEssayPdf}
+          className="bg-green-700 px-4 py-3 rounded-xl font-medium"
+        >
+          Export Essay PDF
+        </button>
+
+        <button
+          onClick={handleExportGeneratedEssayDocx}
+          className="bg-blue-700 px-4 py-3 rounded-xl font-medium"
+        >
+          Export Essay DOCX
+        </button>
+
+        <button
+          onClick={handleShareGeneratedEssay}
+          className="bg-neutral-600 px-4 py-3 rounded-xl font-medium"
+        >
+          Share Essay
+        </button>
+
+        <button
+          onClick={handleSaveGeneratedEssayToLibrary}
+          className="bg-orange-600 px-4 py-3 rounded-xl font-medium"
+        >
+          Save Essay to Library
         </button>
       </div>
 
