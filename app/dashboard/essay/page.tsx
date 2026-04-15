@@ -238,7 +238,7 @@ function EssayPageContent() {
         try {
           setAiResult("Payment successful. Finalizing credits...");
 
-          const res = await fetch("/api/stripe-webhook", {
+          const res = await fetch("/api/stripe-session", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

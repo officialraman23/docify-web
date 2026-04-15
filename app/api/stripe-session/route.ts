@@ -6,9 +6,7 @@ import { FieldValue } from "firebase-admin/firestore";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2022-11-15",
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -37,7 +35,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const metadata = session.metadata as any;
+    const metadata = session.metadata as Record<string, string> | null;
     const priceId = metadata?.priceId;
     const uid = metadata?.uid || session.client_reference_id;
 
@@ -70,7 +68,8 @@ export async function POST(req: Request) {
       tx.set(
         userRef,
         {
-          credits: FieldValue.increment(creditsToAdd),
+          paidCredits: FieldValue.increment(creditsToAdd),
+          updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -83,6 +82,7 @@ export async function POST(req: Request) {
           priceId,
           creditsToAdd,
           sessionId,
+          source: "stripe-session-route",
           processedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -93,9 +93,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("STRIPE SESSION PROCESS ERROR:", err);
     return NextResponse.json(
-      {
-        error: err?.message || "Stripe session processing failed",
-      },
+      { error: err?.message || "Stripe session processing failed" },
       { status: 500 }
     );
   }
