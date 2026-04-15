@@ -231,14 +231,44 @@ function EssayPageContent() {
 
   useEffect(() => {
     const status = searchParams.get("payment");
+    const sessionId = searchParams.get("session_id");
 
-    if (status === "success") {
-      setAiResult("Payment successful.");
-      loadUserCredits();
+    if (status === "success" && sessionId) {
+      const processStripeSession = async () => {
+        try {
+          setAiResult("Payment successful. Finalizing credits...");
 
-      if (typeof window !== "undefined") {
-        window.history.replaceState({}, "", "/dashboard/essay");
-      }
+          const res = await fetch("/api/stripe-webhook", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sessionId,
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            setAiResult(data.error || "Failed to finalize credits.");
+            return;
+          }
+
+          await loadUserCredits();
+          setAiResult("Credits added successfully.");
+
+          if (typeof window !== "undefined") {
+            window.history.replaceState({}, "", "/dashboard/essay");
+          }
+        } catch (error) {
+          console.error("stripe session finalize error:", error);
+          setAiResult("Failed to finalize credits.");
+        }
+      };
+
+      processStripeSession();
+      return;
     }
 
     if (status === "cancelled") {
