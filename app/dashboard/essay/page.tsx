@@ -120,10 +120,12 @@ function EssayPageContent() {
 
       if (userSnap.exists()) {
         const data = userSnap.data();
-        const totalCredits =
-          Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0);
+        const totalCredits = Number(data.credits ?? 0);
 
-        setCredits(totalCredits);
+        setCredits(
+          totalCredits ||
+            Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+        );
 
         console.log(
           "loaded credits:",
@@ -201,10 +203,12 @@ function EssayPageContent() {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          const totalCredits =
-            Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0);
+          const totalCredits = Number(data.credits ?? 0);
 
-          setCredits(totalCredits);
+          setCredits(
+            totalCredits ||
+              Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+          );
           console.log(
             "live credits update:",
             totalCredits,
@@ -227,14 +231,52 @@ function EssayPageContent() {
 
   useEffect(() => {
     const status = searchParams.get("payment");
+    const sessionId = searchParams.get("session_id");
 
     if (status === "success") {
-      setAiResult("Payment successful. Updating credits...");
-      loadUserCredits();
+      setAiResult("Payment successful. Processing credits...");
+
+      const processStripeSession = async () => {
+        try {
+          if (sessionId) {
+            const response = await fetch("/api/stripe-session", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ sessionId }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+              console.error("stripe-session error:", data);
+              setAiResult("Payment successful. Credit processing failed.");
+            } else {
+              console.log("stripe session processed:", data);
+              setAiResult("Payment successful. Credits updated.");
+            }
+          }
+        } catch (err) {
+          console.error("stripe-session request failed:", err);
+          setAiResult("Payment successful. Credit update failed.");
+        } finally {
+          loadUserCredits();
+
+          if (typeof window !== "undefined") {
+            window.history.replaceState({}, "", "/dashboard/essay");
+          }
+        }
+      };
+
+      processStripeSession();
     }
 
     if (status === "cancelled") {
       setAiResult("Payment cancelled.");
+
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/dashboard/essay");
+      }
     }
   }, [searchParams]);
 

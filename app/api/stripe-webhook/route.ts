@@ -64,20 +64,41 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
+      const processedRef = adminDb.collection("stripeSessions").doc(session.id);
+      const processedSnap = await processedRef.get();
+      if (processedSnap.exists()) {
+        console.log("✅ Stripe session already processed:", session.id);
+        return NextResponse.json({ received: true });
+      }
+
       const packDoc = snapshot.docs[0].data();
       const creditsToAdd = Number(packDoc.credits ?? 0);
 
       console.log("✅ Adding credits:", creditsToAdd, "to uid:", uid);
 
-      await adminDb
-        .collection("users")
-        .doc(uid)
-        .set(
+      const userRef = adminDb.collection("users").doc(uid);
+      await adminDb.runTransaction(async (tx) => {
+        tx.set(
+          userRef,
           {
             credits: FieldValue.increment(creditsToAdd),
           },
           { merge: true }
         );
+
+        tx.set(
+          processedRef,
+          {
+            processed: true,
+            uid,
+            priceId,
+            creditsToAdd,
+            sessionId: session.id,
+            processedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
 
       console.log("🎉 Credits updated for:", uid);
     }
