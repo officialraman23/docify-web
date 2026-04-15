@@ -120,12 +120,15 @@ function EssayPageContent() {
 
       if (userSnap.exists()) {
         const data = userSnap.data();
-        const totalCredits = Number(data.credits ?? 0);
 
-        setCredits(
-          totalCredits ||
-            Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
-        );
+        const hasSplitCredits =
+          data.freeCredits !== undefined || data.paidCredits !== undefined;
+
+        const totalCredits = hasSplitCredits
+          ? Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+          : Number(data.credits ?? 0);
+
+        setCredits(totalCredits);
 
         console.log(
           "loaded credits:",
@@ -134,6 +137,8 @@ function EssayPageContent() {
           data.freeCredits,
           "paid:",
           data.paidCredits,
+          "legacy credits:",
+          data.credits,
           "uid:",
           uid
         );
@@ -203,12 +208,15 @@ function EssayPageContent() {
       (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          const totalCredits = Number(data.credits ?? 0);
 
-          setCredits(
-            totalCredits ||
-              Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
-          );
+          const hasSplitCredits =
+            data.freeCredits !== undefined || data.paidCredits !== undefined;
+
+          const totalCredits = hasSplitCredits
+            ? Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+            : Number(data.credits ?? 0);
+
+          setCredits(totalCredits);
           console.log(
             "live credits update:",
             totalCredits,
@@ -216,6 +224,8 @@ function EssayPageContent() {
             data.freeCredits,
             "paid:",
             data.paidCredits,
+            "legacy credits:",
+            data.credits,
             "uid:",
             uid
           );

@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
       const processedRef = adminDb.collection("stripeSessions").doc(session.id);
       const processedSnap = await processedRef.get();
-      if (processedSnap.exists()) {
+      if (processedSnap.exists) {
         console.log("✅ Stripe session already processed:", session.id);
         return NextResponse.json({ received: true });
       }
