@@ -19,14 +19,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const processedRef = adminDb.collection("stripeSessions").doc(sessionId);
-    const processedSnap = await processedRef.get();
+    console.log("stripe-session route called with:", sessionId);
 
-    if (processedSnap.exists()) {
-      return NextResponse.json({ received: true, alreadyProcessed: true });
-    }
+    const processedRef = adminDb.collection("stripeSessions").doc(sessionId);
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    console.log("retrieved session:", session.id, session.payment_status);
+    console.log("session metadata:", session.metadata);
+    console.log("client_reference_id:", session.client_reference_id);
 
     if (session.payment_status !== "paid") {
       return NextResponse.json(
@@ -62,9 +63,22 @@ export async function POST(req: Request) {
     const packDoc = snapshot.docs[0].data();
     const creditsToAdd = Number(packDoc.credits ?? 0);
 
+    console.log("matched priceId:", priceId);
+    console.log("matched uid:", uid);
+    console.log("creditsToAdd:", creditsToAdd);
+
     const userRef = adminDb.collection("users").doc(uid);
 
+    let alreadyProcessed = false;
+
     await adminDb.runTransaction(async (tx) => {
+      const processedSnap = await tx.get(processedRef);
+
+      if (processedSnap.exists) {
+        alreadyProcessed = true;
+        return;
+      }
+
       tx.set(
         userRef,
         {
@@ -88,6 +102,13 @@ export async function POST(req: Request) {
         { merge: true }
       );
     });
+
+    if (alreadyProcessed) {
+      console.log("session already processed:", sessionId);
+      return NextResponse.json({ received: true, alreadyProcessed: true });
+    }
+
+    console.log("paidCredits incremented successfully for uid:", uid);
 
     return NextResponse.json({ received: true, creditsToAdd });
   } catch (err: any) {
