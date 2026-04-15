@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+} from "firebase/firestore";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
@@ -105,8 +111,12 @@ export default function OutlinePage() {
     selectedStyle === "MLA" ? "Works Cited" : "References";
 
   const getCurrentUid = () => {
-    if (typeof window === "undefined") return "test-user";
-    return localStorage.getItem("docify_uid") || "test-user";
+    if (typeof window === "undefined") return null;
+
+    const authUid = auth.currentUser?.uid;
+    if (authUid) return authUid;
+
+    return localStorage.getItem("docify_uid");
   };
 
   const getAiLoadingText = (mode: AiMode) => {
@@ -142,12 +152,39 @@ export default function OutlinePage() {
   const loadUserCredits = async () => {
     try {
       const uid = getCurrentUid();
+
+      if (!uid) {
+        setCredits(0);
+        return;
+      }
+
       const userRef = doc(db, "users", uid);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
         const data = userSnap.data();
-        setCredits(Number(data.credits ?? 0));
+
+        const hasSplitCredits =
+          data.freeCredits !== undefined || data.paidCredits !== undefined;
+
+        const totalCredits = hasSplitCredits
+          ? Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+          : Number(data.credits ?? 0);
+
+        setCredits(totalCredits);
+
+        console.log(
+          "loaded outline credits:",
+          totalCredits,
+          "free:",
+          data.freeCredits,
+          "paid:",
+          data.paidCredits,
+          "legacy credits:",
+          data.credits,
+          "uid:",
+          uid
+        );
       } else {
         setCredits(0);
       }
@@ -202,18 +239,97 @@ export default function OutlinePage() {
 
     loadCreditPacks();
     loadUserCredits();
+
+    const uid = getCurrentUid();
+    if (!uid) return;
+
+    const userRef = doc(db, "users", uid);
+
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+
+          const hasSplitCredits =
+            data.freeCredits !== undefined || data.paidCredits !== undefined;
+
+          const totalCredits = hasSplitCredits
+            ? Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0)
+            : Number(data.credits ?? 0);
+
+          setCredits(totalCredits);
+
+          console.log(
+            "live outline credits update:",
+            totalCredits,
+            "free:",
+            data.freeCredits,
+            "paid:",
+            data.paidCredits,
+            "legacy credits:",
+            data.credits,
+            "uid:",
+            uid
+          );
+        }
+      },
+      (error) => {
+        console.error("live outline credits listener error:", error);
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     const status = searchParams.get("payment");
+    const sessionId = searchParams.get("session_id");
 
-    if (status === "success") {
-      setFieldAIResult("Payment successful. Updating credits...");
-      loadUserCredits();
+    if (status === "success" && sessionId) {
+      const processStripeSession = async () => {
+        try {
+          setFieldAIResult("Payment successful. Finalizing credits...");
+
+          const res = await fetch("/api/stripe-session", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sessionId,
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            setFieldAIResult(data.error || "Failed to finalize credits.");
+            return;
+          }
+
+          await loadUserCredits();
+          setFieldAIResult("Credits added successfully.");
+
+          if (typeof window !== "undefined") {
+            window.history.replaceState({}, "", "/dashboard/outline");
+          }
+        } catch (error) {
+          console.error("stripe session finalize error:", error);
+          setFieldAIResult("Failed to finalize credits.");
+        }
+      };
+
+      processStripeSession();
+      return;
     }
 
     if (status === "cancelled") {
       setFieldAIResult("Payment cancelled.");
+
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/dashboard/outline");
+      }
     }
   }, [searchParams]);
 
@@ -809,6 +925,13 @@ ${referencesBlock}
         return;
       }
 
+      const uid = auth.currentUser?.uid;
+
+      if (!uid) {
+        setFieldAIResult("User not logged in properly. Refresh and try again.");
+        return;
+      }
+
       const res = await fetch("/api/stripe-checkout", {
         method: "POST",
         headers: {
@@ -816,7 +939,7 @@ ${referencesBlock}
         },
         body: JSON.stringify({
           priceId: pack.stripePriceId,
-          uid: getCurrentUid(),
+          uid,
         }),
       });
 
