@@ -231,44 +231,14 @@ function EssayPageContent() {
 
   useEffect(() => {
     const status = searchParams.get("payment");
-    const sessionId = searchParams.get("session_id");
 
     if (status === "success") {
-      setAiResult("Payment successful. Processing credits...");
+      setAiResult("Payment successful.");
+      loadUserCredits();
 
-      const processStripeSession = async () => {
-        try {
-          if (sessionId) {
-            const response = await fetch("/api/stripe-session", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ sessionId }),
-            });
-
-            const data = await response.json();
-            if (!response.ok) {
-              console.error("stripe-session error:", data);
-              setAiResult("Payment successful. Credit processing failed.");
-            } else {
-              console.log("stripe session processed:", data);
-              setAiResult("Payment successful. Credits updated.");
-            }
-          }
-        } catch (err) {
-          console.error("stripe-session request failed:", err);
-          setAiResult("Payment successful. Credit update failed.");
-        } finally {
-          loadUserCredits();
-
-          if (typeof window !== "undefined") {
-            window.history.replaceState({}, "", "/dashboard/essay");
-          }
-        }
-      };
-
-      processStripeSession();
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/dashboard/essay");
+      }
     }
 
     if (status === "cancelled") {
