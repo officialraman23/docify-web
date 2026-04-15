@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { db } from "@/lib/firebase";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
 import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
@@ -12,13 +15,27 @@ type OutlineParagraph = {
   anecdote: string;
 };
 
+type CreditPack = {
+  id: string;
+  name: string;
+  credits: number;
+  price: number;
+  isActive: boolean;
+  stripePriceId?: string;
+};
+
+type AiMode = "check" | "improve" | "shorten" | "expand" | "academic";
+
 function stripHtml(html: string) {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 }
 
 export default function OutlinePage() {
+  const searchParams = useSearchParams();
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+
   const [selectedStyle, setSelectedStyle] = useState<"APA" | "MLA">("APA");
-  const [credits, setCredits] = useState(10);
+  const [credits, setCredits] = useState(0);
 
   const [name, setName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
@@ -81,8 +98,140 @@ export default function OutlinePage() {
   const [activeSectionLabel, setActiveSectionLabel] =
     useState("No field selected");
 
+  const [creditPacks, setCreditPacks] = useState<CreditPack[]>([]);
+  const [showBuyCredits, setShowBuyCredits] = useState(false);
+
   const referencesTitle =
     selectedStyle === "MLA" ? "Works Cited" : "References";
+
+  const getCurrentUid = () => {
+    if (typeof window === "undefined") return "test-user";
+    return localStorage.getItem("docify_uid") || "test-user";
+  };
+
+  const getAiLoadingText = (mode: AiMode) => {
+    switch (mode) {
+      case "check":
+        return "Checking...";
+      case "improve":
+        return "Improving...";
+      case "shorten":
+        return "Shortening...";
+      case "expand":
+        return "Expanding...";
+      case "academic":
+        return "Rewriting academically...";
+      default:
+        return "Processing...";
+    }
+  };
+
+  const getAiCost = (mode: AiMode) => {
+    switch (mode) {
+      case "improve":
+        return 2;
+      case "check":
+      case "shorten":
+      case "expand":
+      case "academic":
+      default:
+        return 1;
+    }
+  };
+
+  const loadUserCredits = async () => {
+    try {
+      const uid = getCurrentUid();
+      const userRef = doc(db, "users", uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        setCredits(Number(data.credits ?? 0));
+      } else {
+        setCredits(0);
+      }
+    } catch (err) {
+      console.error("credits fetch error:", err);
+      setCredits(0);
+    }
+  };
+
+  const updateSelectedTextFromWindow = () => {
+    if (typeof window === "undefined") return;
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const text = selection.toString().trim();
+    if (!text) return;
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    const root = pageRootRef.current;
+
+    if (!root) return;
+
+    const anchorInPage = anchorNode ? root.contains(anchorNode) : false;
+    const focusInPage = focusNode ? root.contains(focusNode) : false;
+
+    if (anchorInPage || focusInPage) {
+      setSelectedTextPreview(text);
+    }
+  };
+
+  useEffect(() => {
+    const loadCreditPacks = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "creditPacks"));
+
+        const packs = snapshot.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as Omit<CreditPack, "id">),
+          }))
+          .filter((pack) => pack.isActive)
+          .sort((a, b) => a.price - b.price);
+
+        setCreditPacks(packs);
+      } catch (error) {
+        console.error("creditPacks fetch error:", error);
+        setFieldAIResult("Failed to load credit packs.");
+      }
+    };
+
+    loadCreditPacks();
+    loadUserCredits();
+  }, []);
+
+  useEffect(() => {
+    const status = searchParams.get("payment");
+
+    if (status === "success") {
+      setFieldAIResult("Payment successful. Updating credits...");
+      loadUserCredits();
+    }
+
+    if (status === "cancelled") {
+      setFieldAIResult("Payment cancelled.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      updateSelectedTextFromWindow();
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("mouseup", handleSelectionChange);
+    document.addEventListener("keyup", handleSelectionChange);
+
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("mouseup", handleSelectionChange);
+      document.removeEventListener("keyup", handleSelectionChange);
+    };
+  }, []);
 
   const outlinePreview = useMemo(() => {
     const lines: string[] = [];
@@ -218,26 +367,28 @@ export default function OutlinePage() {
 
   const callAi = async (
     text: string,
-    mode: "check" | "improve",
-    cost: number,
+    mode: AiMode,
     resultSetter: (value: string) => void,
-    loadingSetter: (value: boolean) => void
+    loadingSetter: (value: boolean) => void,
+    customCost?: number
   ) => {
     const clean = stripHtml(text);
+    const cost = customCost ?? getAiCost(mode);
 
     if (!clean.trim()) {
-      resultSetter("Please write something first.");
+      resultSetter("Please write or select something first.");
       return;
     }
 
     if (credits < cost) {
       resultSetter("Not enough credits. Please buy more.");
+      setShowBuyCredits(true);
       return;
     }
 
     try {
       loadingSetter(true);
-      resultSetter(mode === "check" ? "Checking..." : "Improving...");
+      resultSetter(getAiLoadingText(mode));
 
       const res = await fetch("/api/ai", {
         method: "POST",
@@ -257,9 +408,10 @@ export default function OutlinePage() {
         return;
       }
 
-      setCredits((prev) => prev - cost);
+      setCredits((prev) => Math.max(prev - cost, 0));
       resultSetter(data.result || "No response.");
-    } catch {
+    } catch (error) {
+      console.error("AI request failed:", error);
       resultSetter("Failed to connect to AI.");
     } finally {
       loadingSetter(false);
@@ -274,7 +426,15 @@ export default function OutlinePage() {
     await callAi(
       `${context}\n\n${text}`,
       mode,
-      mode === "improve" ? 2 : 1,
+      setFieldAIResult,
+      setIsFieldAILoading
+    );
+  };
+
+  const runSelectedTextAI = async (mode: AiMode) => {
+    await callAi(
+      selectedTextPreview,
+      mode,
       setFieldAIResult,
       setIsFieldAILoading
     );
@@ -291,14 +451,14 @@ export default function OutlinePage() {
       return;
     }
 
-    const cost = mode === "format" ? 3 : 2;
+    const customCost = mode === "format" ? 3 : 2;
 
     await callAi(
       `${mode.toUpperCase()} citation in ${selectedStyle} style:\n\n${text}`,
       "improve",
-      cost,
       setCitationAIResult,
-      setIsCitationAILoading
+      setIsCitationAILoading,
+      customCost
     );
   };
 
@@ -312,6 +472,7 @@ export default function OutlinePage() {
 
     if (credits < 5) {
       setCitationAIResult("Not enough credits.");
+      setShowBuyCredits(true);
       return;
     }
 
@@ -341,7 +502,7 @@ export default function OutlinePage() {
         return;
       }
 
-      setCredits((prev) => prev - 5);
+      setCredits((prev) => Math.max(prev - 5, 0));
       setCitationAIResult(data.result || "No response.");
 
       const lines = (data.result || "")
@@ -352,16 +513,17 @@ export default function OutlinePage() {
       if (lines.length) {
         setReferenceEntries(lines);
       }
-    } catch {
+    } catch (error) {
+      console.error("References generation failed:", error);
       setCitationAIResult("Failed to connect to AI.");
     } finally {
       setIsCitationAILoading(false);
     }
   };
-
   const generateEssayFromOutline = async () => {
     if (credits < 8) {
       setGeneratedEssay("Not enough credits. Please buy more.");
+      setShowBuyCredits(true);
       return;
     }
 
@@ -450,9 +612,10 @@ ${referencesBlock}
         return;
       }
 
-      setCredits((prev) => prev - 8);
+      setCredits((prev) => Math.max(prev - 8, 0));
       setGeneratedEssay(data.result || "No response.");
-    } catch {
+    } catch (error) {
+      console.error("Essay generation failed:", error);
       setGeneratedEssay("Failed to connect to AI.");
     } finally {
       setIsEssayGenerating(false);
@@ -489,6 +652,8 @@ ${referencesBlock}
         .toLowerCase(),
       content: outlinePreview,
     });
+
+    setFieldAIResult("Outline PDF exported successfully.");
   };
 
   const handleExportOutlineDocx = async () => {
@@ -503,6 +668,8 @@ ${referencesBlock}
         .toLowerCase(),
       content: outlinePreview,
     });
+
+    setFieldAIResult("Outline DOCX exported successfully.");
   };
 
   const handleExportGeneratedEssayPdf = async () => {
@@ -519,6 +686,8 @@ ${referencesBlock}
         .toLowerCase()}-generated`,
       content: cleanEssay,
     });
+
+    setGeneratedEssay("Generated essay PDF exported successfully.");
   };
 
   const handleExportGeneratedEssayDocx = async () => {
@@ -535,6 +704,8 @@ ${referencesBlock}
         .toLowerCase()}-generated`,
       content: cleanEssay,
     });
+
+    setGeneratedEssay("Generated essay DOCX exported successfully.");
   };
 
   const handleShareOutline = async () => {
@@ -551,12 +722,14 @@ ${referencesBlock}
           title: stripHtml(outlineTitle) || "Outline",
           text: shareText,
         });
+        setFieldAIResult("Outline shared successfully.");
         return;
       }
 
       await navigator.clipboard.writeText(shareText);
       setFieldAIResult("Outline copied to clipboard.");
-    } catch {
+    } catch (error) {
+      console.error("Sharing outline failed:", error);
       setFieldAIResult("Sharing outline failed.");
     }
   };
@@ -575,17 +748,21 @@ ${referencesBlock}
           title: `${stripHtml(outlineTitle) || "Outline"} - Generated Essay`,
           text: shareText,
         });
+        setGeneratedEssay("Generated essay shared successfully.");
         return;
       }
 
       await navigator.clipboard.writeText(shareText);
       setGeneratedEssay("Generated essay copied to clipboard.");
-    } catch {
+    } catch (error) {
+      console.error("Sharing generated essay failed:", error);
       setGeneratedEssay("Sharing generated essay failed.");
     }
   };
 
   const handleSaveOutlineToLibrary = () => {
+    if (typeof window === "undefined") return;
+
     if (!outlinePreview.trim()) {
       setFieldAIResult("Write something first before saving the outline.");
       return;
@@ -604,6 +781,8 @@ ${referencesBlock}
   };
 
   const handleSaveGeneratedEssayToLibrary = () => {
+    if (typeof window === "undefined") return;
+
     const cleanEssay = generatedEssay.trim();
 
     if (!cleanEssay || cleanEssay === "Generated essay will appear here.") {
@@ -621,6 +800,42 @@ ${referencesBlock}
     );
 
     setGeneratedEssay("Generated essay saved to library.");
+  };
+
+  const handlePackClick = async (pack: CreditPack) => {
+    try {
+      if (!pack.stripePriceId) {
+        setFieldAIResult("Missing Stripe price ID");
+        return;
+      }
+
+      const res = await fetch("/api/stripe-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          priceId: pack.stripePriceId,
+          uid: getCurrentUid(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFieldAIResult(data.error || "Checkout failed");
+        return;
+      }
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setFieldAIResult(data.error || "Checkout failed");
+      }
+    } catch (error) {
+      console.error("Stripe error:", error);
+      setFieldAIResult("Stripe error");
+    }
   };
 
   const updateParagraphField = (
@@ -696,541 +911,592 @@ ${referencesBlock}
   };
 
   return (
-    <div className="space-y-6">
-      <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-        <h1 className="text-3xl font-bold">Outline</h1>
-        <p className="text-gray-400">
-          Build your essay outline, improve sections with AI, and generate
-          citations from sources.
-        </p>
-        <p className="text-sm text-blue-400">
-          Currently Editing: {activeSectionLabel}
-        </p>
-      </div>
-
-      <div className="bg-neutral-900 p-5 rounded-2xl flex flex-wrap gap-3">
-        <button
-          onClick={generateEssayFromOutline}
-          disabled={isEssayGenerating}
-          className="bg-purple-600 px-4 py-3 rounded-xl font-medium disabled:opacity-60"
-        >
-          Generate Essay from Outline (-8)
-        </button>
-
-        <button
-          onClick={handleExportOutlinePdf}
-          className="bg-green-600 px-4 py-3 rounded-xl font-medium"
-        >
-          Export Outline PDF
-        </button>
-
-        <button
-          onClick={handleExportOutlineDocx}
-          className="bg-blue-600 px-4 py-3 rounded-xl font-medium"
-        >
-          Export Outline DOCX
-        </button>
-
-        <button
-          onClick={handleShareOutline}
-          className="bg-neutral-700 px-4 py-3 rounded-xl font-medium"
-        >
-          Share Outline
-        </button>
-
-        <button
-          onClick={handleSaveOutlineToLibrary}
-          className="bg-orange-500 px-4 py-3 rounded-xl font-medium"
-        >
-          Save Outline to Library
-        </button>
-
-        <button
-          onClick={handleExportGeneratedEssayPdf}
-          className="bg-green-700 px-4 py-3 rounded-xl font-medium"
-        >
-          Export Essay PDF
-        </button>
-
-        <button
-          onClick={handleExportGeneratedEssayDocx}
-          className="bg-blue-700 px-4 py-3 rounded-xl font-medium"
-        >
-          Export Essay DOCX
-        </button>
-
-        <button
-          onClick={handleShareGeneratedEssay}
-          className="bg-neutral-600 px-4 py-3 rounded-xl font-medium"
-        >
-          Share Essay
-        </button>
-
-        <button
-          onClick={handleSaveGeneratedEssayToLibrary}
-          className="bg-orange-600 px-4 py-3 rounded-xl font-medium"
-        >
-          Save Essay to Library
-        </button>
-      </div>
-
-      <div className="bg-neutral-900 p-5 rounded-2xl space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Outline Information</h2>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setSelectedStyle("APA")}
-              className={`px-3 py-1 rounded-lg ${
-                selectedStyle === "APA" ? "bg-blue-500" : "bg-neutral-800"
-              }`}
-            >
-              APA
-            </button>
-            <button
-              onClick={() => setSelectedStyle("MLA")}
-              className={`px-3 py-1 rounded-lg ${
-                selectedStyle === "MLA" ? "bg-blue-500" : "bg-neutral-800"
-              }`}
-            >
-              MLA
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Name</p>
-          <RichTextEditor
-            content={name}
-            onChange={setName}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write your name..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Student #</p>
-          <RichTextEditor
-            content={studentNumber}
-            onChange={setStudentNumber}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write your student number..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Teacher Name</p>
-          <RichTextEditor
-            content={teacher}
-            onChange={setTeacher}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write your teacher name..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Course Name</p>
-          <RichTextEditor
-            content={course}
-            onChange={setCourse}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write your course name..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Date</p>
-          <RichTextEditor
-            content={date}
-            onChange={setDate}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write the date..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Outline Title</p>
-          <RichTextEditor
-            content={outlineTitle}
-            onChange={setOutlineTitle}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Write your outline title..."
-          />
-        </div>
-      </div>
-
-      <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
-        <h2 className="text-xl font-semibold">Introduction</h2>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Hook</p>
-          <input
-            value={hook}
-            onChange={(e) => setHook(e.target.value)}
-            onFocus={() => setActiveSectionLabel("Hook")}
-            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder="Hook"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() => callFieldAI(hook, "check", "Hook")}
-              disabled={isFieldAILoading}
-              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Check (-1)
-            </button>
-            <button
-              onClick={() => callFieldAI(hook, "improve", "Hook")}
-              disabled={isFieldAILoading}
-              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Improve (-2)
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Topic introduction</p>
-          <input
-            value={topicIntroduction}
-            onChange={(e) => setTopicIntroduction(e.target.value)}
-            onFocus={() => setActiveSectionLabel("Topic introduction")}
-            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder="Topic introduction"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() =>
-                callFieldAI(topicIntroduction, "check", "Topic introduction")
-              }
-              disabled={isFieldAILoading}
-              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Check (-1)
-            </button>
-            <button
-              onClick={() =>
-                callFieldAI(
-                  topicIntroduction,
-                  "improve",
-                  "Topic introduction"
-                )
-              }
-              disabled={isFieldAILoading}
-              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Improve (-2)
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Definition</p>
-          <input
-            value={definition}
-            onChange={(e) => setDefinition(e.target.value)}
-            onFocus={() => setActiveSectionLabel("Definition")}
-            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder="Definition"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() => callFieldAI(definition, "check", "Definition")}
-              disabled={isFieldAILoading}
-              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Check (-1)
-            </button>
-            <button
-              onClick={() => callFieldAI(definition, "improve", "Definition")}
-              disabled={isFieldAILoading}
-              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Improve (-2)
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">Historical information</p>
-          <input
-            value={historicalInformation}
-            onChange={(e) => setHistoricalInformation(e.target.value)}
-            onFocus={() => setActiveSectionLabel("Historical information")}
-            className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-            placeholder="Historical information"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() =>
-                callFieldAI(
-                  historicalInformation,
-                  "check",
-                  "Historical information"
-                )
-              }
-              disabled={isFieldAILoading}
-              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Check (-1)
-            </button>
-            <button
-              onClick={() =>
-                callFieldAI(
-                  historicalInformation,
-                  "improve",
-                  "Historical information"
-                )
-              }
-              disabled={isFieldAILoading}
-              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Improve (-2)
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400">
-            Thesis statement (your claim and three reasons)
-          </p>
-          <RichTextEditor
-            content={thesisStatement}
-            onChange={setThesisStatement}
-            onSelectionChange={setSelectedTextPreview}
-            placeholder="Thesis statement (your claim and three reasons)"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() =>
-                callFieldAI(thesisStatement, "check", "Thesis statement")
-              }
-              disabled={isFieldAILoading}
-              className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Check (-1)
-            </button>
-            <button
-              onClick={() =>
-                callFieldAI(thesisStatement, "improve", "Thesis statement")
-              }
-              disabled={isFieldAILoading}
-              className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-            >
-              Improve (-2)
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold">Body Paragraphs</h2>
-          <button
-            onClick={addParagraph}
-            className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
-          >
-            Add Paragraph
-          </button>
-        </div>
-
-        {paragraphs.map((paragraph, paragraphIndex) => (
-          <div
-            key={paragraph.id}
-            className="bg-neutral-900 p-5 rounded-2xl space-y-4"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold">{`${
-                paragraphIndex + 1
-              }${
-                paragraphIndex === 0
-                  ? "st"
-                  : paragraphIndex === 1
-                  ? "nd"
-                  : paragraphIndex === 2
-                  ? "rd"
-                  : "th"
-              } Body Paragraph`}</h3>
-              {paragraphs.length > 1 && (
-                <button
-                  onClick={() => removeParagraph(paragraph.id)}
-                  className="text-red-400 text-sm"
-                >
-                  Remove Paragraph
-                </button>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm text-gray-400">Topic sentence</p>
-              <input
-                value={paragraph.topicSentence}
-                onChange={(e) =>
-                  updateParagraphField(
-                    paragraphIndex,
-                    "topicSentence",
-                    e.target.value
-                  )
-                }
-                onFocus={() =>
-                  setActiveSectionLabel(
-                    `Body Paragraph ${paragraphIndex + 1} Topic sentence`
-                  )
-                }
-                className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
-                placeholder="Topic sentence"
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={() =>
-                    callFieldAI(
-                      paragraph.topicSentence,
-                      "check",
-                      `Body Paragraph ${paragraphIndex + 1} Topic sentence`
-                    )
-                  }
-                  disabled={isFieldAILoading}
-                  className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                >
-                  Check (-1)
-                </button>
-                <button
-                  onClick={() =>
-                    callFieldAI(
-                      paragraph.topicSentence,
-                      "improve",
-                      `Body Paragraph ${paragraphIndex + 1} Topic sentence`
-                    )
-                  }
-                  disabled={isFieldAILoading}
-                  className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                >
-                  Improve (-2)
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-lg font-semibold">
-                  Supporting points / Evidence
+    <div ref={pageRootRef}>
+      {showBuyCredits && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-neutral-950 border border-neutral-800 rounded-3xl p-6 space-y-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold">Buy Credits</h2>
+                <p className="text-gray-400 mt-1">
+                  Choose a pack to keep using AI tools in Docify.
                 </p>
-                <button
-                  onClick={() => addEvidence(paragraphIndex)}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg"
-                >
-                  Add Evidence
-                </button>
               </div>
 
-              {paragraph.evidences.map((evidence, evidenceIndex) => (
-                <div key={evidenceIndex} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-400">{`Evidence ${
-                      evidenceIndex + 1
-                    } (quote/source)`}</p>
-                    {paragraph.evidences.length > 2 && (
-                      <button
-                        onClick={() =>
-                          removeEvidence(paragraphIndex, evidenceIndex)
-                        }
-                        className="text-red-400 text-sm"
-                      >
-                        Remove
-                      </button>
-                    )}
+              <button
+                onClick={() => setShowBuyCredits(false)}
+                className="bg-neutral-800 px-4 py-2 rounded-xl font-medium"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {creditPacks.map((pack) => (
+                <div
+                  key={pack.id}
+                  className="bg-neutral-900 rounded-2xl p-5 space-y-4 border border-neutral-800"
+                >
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-semibold">{pack.name}</h3>
+                    <p className="text-gray-400">{pack.credits} credits</p>
+                    <p className="text-2xl font-bold">${pack.price}</p>
                   </div>
 
-                  <RichTextEditor
-                    content={evidence}
-                    onChange={(value) =>
-                      updateEvidence(paragraphIndex, evidenceIndex, value)
-                    }
-                    onSelectionChange={setSelectedTextPreview}
-                    placeholder={`Evidence ${
-                      evidenceIndex + 1
-                    } (quote/source)`}
-                  />
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() =>
-                        callFieldAI(
-                          evidence,
-                          "check",
-                          `Evidence ${
-                            evidenceIndex + 1
-                          } for Body Paragraph ${paragraphIndex + 1}`
-                        )
-                      }
-                      disabled={isFieldAILoading}
-                      className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                    >
-                      Check (-1)
-                    </button>
-                    <button
-                      onClick={() =>
-                        callFieldAI(
-                          evidence,
-                          "improve",
-                          `Evidence ${
-                            evidenceIndex + 1
-                          } for Body Paragraph ${paragraphIndex + 1}`
-                        )
-                      }
-                      disabled={isFieldAILoading}
-                      className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                    >
-                      Improve (-2)
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => handlePackClick(pack)}
+                    className="w-full bg-blue-500 text-white px-4 py-3 rounded-xl font-medium"
+                  >
+                    Buy {pack.name}
+                  </button>
                 </div>
               ))}
             </div>
 
-            <div className="space-y-2">
-              <p className="text-sm text-gray-400">Anecdote</p>
-              <RichTextEditor
-                content={paragraph.anecdote}
-                onChange={(value) =>
-                  updateParagraphField(paragraphIndex, "anecdote", value)
-                }
-                onSelectionChange={setSelectedTextPreview}
-                placeholder="Anecdote"
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={() =>
-                    callFieldAI(
-                      paragraph.anecdote,
-                      "check",
-                      `Body Paragraph ${paragraphIndex + 1} Anecdote`
-                    )
-                  }
-                  disabled={isFieldAILoading}
-                  className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                >
-                  Check (-1)
-                </button>
-                <button
-                  onClick={() =>
-                    callFieldAI(
-                      paragraph.anecdote,
-                      "improve",
-                      `Body Paragraph ${paragraphIndex + 1} Anecdote`
-                    )
-                  }
-                  disabled={isFieldAILoading}
-                  className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
-                >
-                  Improve (-2)
-                </button>
+            {creditPacks.length === 0 && (
+              <div className="bg-neutral-900 rounded-2xl p-5 text-gray-400">
+                No active credit packs found.
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
+  <div className="min-w-0 space-y-6">
+    <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+      <h1 className="text-3xl font-bold">Outline</h1>
+      <p className="text-gray-400">
+        Build your essay outline, improve sections with AI, and generate
+        citations from sources.
+      </p>
+      <p className="text-sm text-blue-400">
+        Currently Editing: {activeSectionLabel}
+      </p>
+    </div>
+
+        <div className="bg-neutral-900 p-5 rounded-2xl flex flex-wrap gap-3">
+          <button
+            onClick={generateEssayFromOutline}
+            disabled={isEssayGenerating}
+            className="bg-purple-600 px-4 py-3 rounded-xl font-medium disabled:opacity-60"
+          >
+            Generate Essay from Outline (-8)
+          </button>
+
+          <button
+            onClick={handleExportOutlinePdf}
+            className="bg-green-600 px-4 py-3 rounded-xl font-medium"
+          >
+            Export Outline PDF
+          </button>
+
+          <button
+            onClick={handleExportOutlineDocx}
+            className="bg-blue-600 px-4 py-3 rounded-xl font-medium"
+          >
+            Export Outline DOCX
+          </button>
+
+          <button
+            onClick={handleShareOutline}
+            className="bg-neutral-700 px-4 py-3 rounded-xl font-medium"
+          >
+            Share Outline
+          </button>
+
+          <button
+            onClick={handleSaveOutlineToLibrary}
+            className="bg-orange-500 px-4 py-3 rounded-xl font-medium"
+          >
+            Save Outline to Library
+          </button>
+
+          <button
+            onClick={handleExportGeneratedEssayPdf}
+            className="bg-green-700 px-4 py-3 rounded-xl font-medium"
+          >
+            Export Essay PDF
+          </button>
+
+          <button
+            onClick={handleExportGeneratedEssayDocx}
+            className="bg-blue-700 px-4 py-3 rounded-xl font-medium"
+          >
+            Export Essay DOCX
+          </button>
+
+          <button
+            onClick={handleShareGeneratedEssay}
+            className="bg-neutral-600 px-4 py-3 rounded-xl font-medium"
+          >
+            Share Essay
+          </button>
+
+          <button
+            onClick={handleSaveGeneratedEssayToLibrary}
+            className="bg-orange-600 px-4 py-3 rounded-xl font-medium"
+          >
+            Save Essay to Library
+          </button>
+        </div>
+
+        <div className="bg-neutral-900 p-5 rounded-2xl space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Outline Information</h2>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedStyle("APA")}
+                className={`px-3 py-1 rounded-lg ${
+                  selectedStyle === "APA" ? "bg-blue-500" : "bg-neutral-800"
+                }`}
+              >
+                APA
+              </button>
+              <button
+                onClick={() => setSelectedStyle("MLA")}
+                className={`px-3 py-1 rounded-lg ${
+                  selectedStyle === "MLA" ? "bg-blue-500" : "bg-neutral-800"
+                }`}
+              >
+                MLA
+              </button>
             </div>
           </div>
-        ))}
-      </div>
 
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Name</p>
+            <RichTextEditor
+              content={name}
+              onChange={setName}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write your name..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Student #</p>
+            <RichTextEditor
+              content={studentNumber}
+              onChange={setStudentNumber}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write your student number..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Teacher Name</p>
+            <RichTextEditor
+              content={teacher}
+              onChange={setTeacher}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write your teacher name..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Course Name</p>
+            <RichTextEditor
+              content={course}
+              onChange={setCourse}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write your course name..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Date</p>
+            <RichTextEditor
+              content={date}
+              onChange={setDate}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write the date..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Outline Title</p>
+            <RichTextEditor
+              content={outlineTitle}
+              onChange={setOutlineTitle}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Write your outline title..."
+            />
+          </div>
+        </div>
+
+        <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
+          <h2 className="text-xl font-semibold">Introduction</h2>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Hook</p>
+            <input
+              value={hook}
+              onChange={(e) => setHook(e.target.value)}
+              onFocus={() => setActiveSectionLabel("Hook")}
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+              placeholder="Hook"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => callFieldAI(hook, "check", "Hook")}
+                disabled={isFieldAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check (-1)
+              </button>
+              <button
+                onClick={() => callFieldAI(hook, "improve", "Hook")}
+                disabled={isFieldAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Improve (-2)
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Topic introduction</p>
+            <input
+              value={topicIntroduction}
+              onChange={(e) => setTopicIntroduction(e.target.value)}
+              onFocus={() => setActiveSectionLabel("Topic introduction")}
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+              placeholder="Topic introduction"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() =>
+                  callFieldAI(topicIntroduction, "check", "Topic introduction")
+                }
+                disabled={isFieldAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check (-1)
+              </button>
+              <button
+                onClick={() =>
+                  callFieldAI(
+                    topicIntroduction,
+                    "improve",
+                    "Topic introduction"
+                  )
+                }
+                disabled={isFieldAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Improve (-2)
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Definition</p>
+            <input
+              value={definition}
+              onChange={(e) => setDefinition(e.target.value)}
+              onFocus={() => setActiveSectionLabel("Definition")}
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+              placeholder="Definition"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => callFieldAI(definition, "check", "Definition")}
+                disabled={isFieldAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check (-1)
+              </button>
+              <button
+                onClick={() => callFieldAI(definition, "improve", "Definition")}
+                disabled={isFieldAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Improve (-2)
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">Historical information</p>
+            <input
+              value={historicalInformation}
+              onChange={(e) => setHistoricalInformation(e.target.value)}
+              onFocus={() => setActiveSectionLabel("Historical information")}
+              className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+              placeholder="Historical information"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() =>
+                  callFieldAI(
+                    historicalInformation,
+                    "check",
+                    "Historical information"
+                  )
+                }
+                disabled={isFieldAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check (-1)
+              </button>
+              <button
+                onClick={() =>
+                  callFieldAI(
+                    historicalInformation,
+                    "improve",
+                    "Historical information"
+                  )
+                }
+                disabled={isFieldAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Improve (-2)
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-gray-400">
+              Thesis statement (your claim and three reasons)
+            </p>
+            <RichTextEditor
+              content={thesisStatement}
+              onChange={setThesisStatement}
+              onSelectionChange={setSelectedTextPreview}
+              placeholder="Thesis statement (your claim and three reasons)"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() =>
+                  callFieldAI(thesisStatement, "check", "Thesis statement")
+                }
+                disabled={isFieldAILoading}
+                className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Check (-1)
+              </button>
+              <button
+                onClick={() =>
+                  callFieldAI(thesisStatement, "improve", "Thesis statement")
+                }
+                disabled={isFieldAILoading}
+                className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+              >
+                Improve (-2)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">Body Paragraphs</h2>
+            <button
+              onClick={addParagraph}
+              className="bg-blue-500 px-4 py-2 rounded-xl font-medium"
+            >
+              Add Paragraph
+            </button>
+          </div>
+
+          {paragraphs.map((paragraph, paragraphIndex) => (
+            <div
+              key={paragraph.id}
+              className="bg-neutral-900 p-5 rounded-2xl space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold">{`${
+                  paragraphIndex + 1
+                }${
+                  paragraphIndex === 0
+                    ? "st"
+                    : paragraphIndex === 1
+                    ? "nd"
+                    : paragraphIndex === 2
+                    ? "rd"
+                    : "th"
+                } Body Paragraph`}</h3>
+                {paragraphs.length > 1 && (
+                  <button
+                    onClick={() => removeParagraph(paragraph.id)}
+                    className="text-red-400 text-sm"
+                  >
+                    Remove Paragraph
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm text-gray-400">Topic sentence</p>
+                <input
+                  value={paragraph.topicSentence}
+                  onChange={(e) =>
+                    updateParagraphField(
+                      paragraphIndex,
+                      "topicSentence",
+                      e.target.value
+                    )
+                  }
+                  onFocus={() =>
+                    setActiveSectionLabel(
+                      `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                    )
+                  }
+                  className="w-full p-3 bg-neutral-800 rounded-xl outline-none"
+                  placeholder="Topic sentence"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      callFieldAI(
+                        paragraph.topicSentence,
+                        "check",
+                        `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                      )
+                    }
+                    disabled={isFieldAILoading}
+                    className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                  >
+                    Check (-1)
+                  </button>
+                  <button
+                    onClick={() =>
+                      callFieldAI(
+                        paragraph.topicSentence,
+                        "improve",
+                        `Body Paragraph ${paragraphIndex + 1} Topic sentence`
+                      )
+                    }
+                    disabled={isFieldAILoading}
+                    className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                  >
+                    Improve (-2)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-lg font-semibold">
+                    Supporting points / Evidence
+                  </p>
+                  <button
+                    onClick={() => addEvidence(paragraphIndex)}
+                    className="bg-neutral-800 px-3 py-2 rounded-lg"
+                  >
+                    Add Evidence
+                  </button>
+                </div>
+
+                {paragraph.evidences.map((evidence, evidenceIndex) => (
+                  <div key={evidenceIndex} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-400">{`Evidence ${
+                        evidenceIndex + 1
+                      } (quote/source)`}</p>
+                      {paragraph.evidences.length > 2 && (
+                        <button
+                          onClick={() =>
+                            removeEvidence(paragraphIndex, evidenceIndex)
+                          }
+                          className="text-red-400 text-sm"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <RichTextEditor
+                      content={evidence}
+                      onChange={(value) =>
+                        updateEvidence(paragraphIndex, evidenceIndex, value)
+                      }
+                      onSelectionChange={setSelectedTextPreview}
+                      placeholder={`Evidence ${
+                        evidenceIndex + 1
+                      } (quote/source)`}
+                    />
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() =>
+                          callFieldAI(
+                            evidence,
+                            "check",
+                            `Evidence ${
+                              evidenceIndex + 1
+                            } for Body Paragraph ${paragraphIndex + 1}`
+                          )
+                        }
+                        disabled={isFieldAILoading}
+                        className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                      >
+                        Check (-1)
+                      </button>
+                      <button
+                        onClick={() =>
+                          callFieldAI(
+                            evidence,
+                            "improve",
+                            `Evidence ${
+                              evidenceIndex + 1
+                            } for Body Paragraph ${paragraphIndex + 1}`
+                          )
+                        }
+                        disabled={isFieldAILoading}
+                        className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                      >
+                        Improve (-2)
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm text-gray-400">Anecdote</p>
+                <RichTextEditor
+                  content={paragraph.anecdote}
+                  onChange={(value) =>
+                    updateParagraphField(paragraphIndex, "anecdote", value)
+                  }
+                  onSelectionChange={setSelectedTextPreview}
+                  placeholder="Anecdote"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      callFieldAI(
+                        paragraph.anecdote,
+                        "check",
+                        `Body Paragraph ${paragraphIndex + 1} Anecdote`
+                      )
+                    }
+                    disabled={isFieldAILoading}
+                    className="bg-white text-black px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                  >
+                    Check (-1)
+                  </button>
+                  <button
+                    onClick={() =>
+                      callFieldAI(
+                        paragraph.anecdote,
+                        "improve",
+                        `Body Paragraph ${paragraphIndex + 1} Anecdote`
+                      )
+                    }
+                    disabled={isFieldAILoading}
+                    className="bg-blue-500 px-4 py-2 rounded-xl font-medium disabled:opacity-60"
+                  >
+                    Improve (-2)
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       <div className="bg-neutral-900 p-5 rounded-2xl space-y-4">
         <h2 className="text-xl font-semibold">Conclusion</h2>
 
@@ -1517,102 +1783,102 @@ ${referencesBlock}
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
-        <div className="space-y-5">
-          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+                      <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
             <h3 className="text-lg font-semibold">Outline Preview</h3>
             <DocumentPreview content={outlinePreview} />
           </div>
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-            <h3 className="text-lg font-semibold">Outline AI Result</h3>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">
-              {fieldAIResult}
-            </p>
-          </div>
-
-          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
             <h3 className="text-lg font-semibold">Citation Helper Result</h3>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">
-              {citationAIResult}
-            </p>
+            <div className="max-h-72 overflow-y-auto">
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {citationAIResult}
+              </p>
+            </div>
           </div>
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
             <h3 className="text-lg font-semibold">Generated Essay</h3>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">
-              {generatedEssay}
-            </p>
+            <div className="max-h-80 overflow-y-auto">
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {generatedEssay}
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="space-y-5">
+        <div className="xl:sticky xl:top-6 self-start space-y-5">
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-            <h3 className="text-lg font-semibold">Credits</h3>
+            <h3 className="text-lg font-semibold">Workspace Credits</h3>
             <p className="text-3xl font-bold">{credits}</p>
+            <button
+              onClick={() => setShowBuyCredits(true)}
+              className="w-full bg-blue-500 px-4 py-3 rounded-xl font-medium"
+            >
+              Buy Credits
+            </button>
           </div>
 
           <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-            <h3 className="text-lg font-semibold">Selected Text</h3>
-            <p className="text-sm text-gray-400 whitespace-pre-wrap">
-              {selectedTextPreview || "No text selected"}
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold">Selected Text</h3>
+              <button
+                onClick={() => setSelectedTextPreview("")}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-400 whitespace-pre-wrap max-h-40 overflow-y-auto">
+              {selectedTextPreview || "No text selected yet."}
             </p>
 
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() =>
-                  callFieldAI(selectedTextPreview, "check", "Selected text")
-                }
-                disabled={isFieldAILoading}
-                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+                onClick={() => runSelectedTextAI("check")}
+                disabled={isFieldAILoading || !selectedTextPreview.trim()}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
               >
                 Check
               </button>
               <button
-                onClick={() =>
-                  callFieldAI(selectedTextPreview, "improve", "Selected text")
-                }
-                disabled={isFieldAILoading}
-                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+                onClick={() => runSelectedTextAI("improve")}
+                disabled={isFieldAILoading || !selectedTextPreview.trim()}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
               >
                 Improve
               </button>
               <button
-                onClick={() =>
-                  setFieldAIResult(
-                    `Shorten:\n\n${
-                      selectedTextPreview || "Select text first."
-                    }`
-                  )
-                }
-                className="bg-neutral-800 px-3 py-2 rounded-lg"
+                onClick={() => runSelectedTextAI("shorten")}
+                disabled={isFieldAILoading || !selectedTextPreview.trim()}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
               >
                 Shorten
               </button>
               <button
-                onClick={() =>
-                  setFieldAIResult(
-                    `Expand:\n\n${
-                      selectedTextPreview || "Select text first."
-                    }`
-                  )
-                }
-                className="bg-neutral-800 px-3 py-2 rounded-lg"
+                onClick={() => runSelectedTextAI("expand")}
+                disabled={isFieldAILoading || !selectedTextPreview.trim()}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
               >
                 Expand
               </button>
               <button
-                onClick={() =>
-                  setFieldAIResult(
-                    `Academic rewrite:\n\n${
-                      selectedTextPreview || "Select text first."
-                    }`
-                  )
-                }
-                className="bg-neutral-800 px-3 py-2 rounded-lg"
+                onClick={() => runSelectedTextAI("academic")}
+                disabled={isFieldAILoading || !selectedTextPreview.trim()}
+                className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
               >
                 Academic
               </button>
+            </div>
+          </div>
+
+          <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
+            <h3 className="text-lg font-semibold">AI Result</h3>
+            <div className="max-h-80 overflow-y-auto">
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {fieldAIResult}
+              </p>
             </div>
           </div>
         </div>

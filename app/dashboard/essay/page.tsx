@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DocumentPreview from "@/components/editor/DocumentPreview";
 import RichTextEditor from "@/components/editor/RichTextEditor";
-import { useFormatting } from "@/components/editor/FormattingContext";
+import {
+  FormattingProvider,
+  useFormatting,
+} from "@/components/editor/FormattingContext";
 import { exportTextToPdf, exportTextToDocx } from "@/lib/exportUtils";
-import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+} from "firebase/firestore";
 
 type BodyParagraph = {
   id: string;
@@ -23,13 +32,16 @@ type CreditPack = {
   stripePriceId?: string;
 };
 
+type AiMode = "check" | "improve" | "shorten" | "expand" | "academic";
+
 function stripHtml(html: string) {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 }
 
-export default function EssayPage() {
+function EssayPageContent() {
   const { font, fontSize } = useFormatting();
   const searchParams = useSearchParams();
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
@@ -56,25 +68,103 @@ export default function EssayPage() {
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
   const getCurrentUid = () => {
-    if (typeof window === "undefined") return "test-user";
-    return localStorage.getItem("docify_uid") || "test-user";
+    if (typeof window === "undefined") return null;
+
+    const authUid = auth.currentUser?.uid;
+    if (authUid) return authUid;
+
+    return localStorage.getItem("docify_uid");
+  };
+
+  const getAiLoadingText = (mode: AiMode) => {
+    switch (mode) {
+      case "check":
+        return "Checking...";
+      case "improve":
+        return "Improving...";
+      case "shorten":
+        return "Shortening...";
+      case "expand":
+        return "Expanding...";
+      case "academic":
+        return "Rewriting academically...";
+      default:
+        return "Processing...";
+    }
+  };
+
+  const getAiCost = (mode: AiMode) => {
+    switch (mode) {
+      case "improve":
+        return 2;
+      case "check":
+      case "shorten":
+      case "expand":
+      case "academic":
+      default:
+        return 1;
+    }
   };
 
   const loadUserCredits = async () => {
     try {
       const uid = getCurrentUid();
+
+      if (!uid) {
+        setCredits(0);
+        return;
+      }
+
       const userRef = doc(db, "users", uid);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
         const data = userSnap.data();
-        setCredits(Number(data.credits ?? 0));
-        console.log("loaded credits:", data.credits);
+        const totalCredits =
+          Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0);
+
+        setCredits(totalCredits);
+
+        console.log(
+          "loaded credits:",
+          totalCredits,
+          "free:",
+          data.freeCredits,
+          "paid:",
+          data.paidCredits,
+          "uid:",
+          uid
+        );
       } else {
         setCredits(0);
+        console.log("no user doc found for uid:", uid);
       }
     } catch (err) {
       console.error("credits fetch error:", err);
+      setCredits(0);
+    }
+  };
+
+  const updateSelectedTextFromWindow = () => {
+    if (typeof window === "undefined") return;
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const text = selection.toString().trim();
+    if (!text) return;
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+
+    const root = pageRootRef.current;
+    if (!root) return;
+
+    const anchorInPage = anchorNode ? root.contains(anchorNode) : false;
+    const focusInPage = focusNode ? root.contains(focusNode) : false;
+
+    if (anchorInPage || focusInPage) {
+      setSelectedTextPreview(text);
     }
   };
 
@@ -83,15 +173,6 @@ export default function EssayPage() {
       try {
         const snapshot = await getDocs(collection(db, "creditPacks"));
 
-        console.log("creditPacks size:", snapshot.size);
-        console.log(
-          "creditPacks docs:",
-          snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }))
-        );
-
         const packs = snapshot.docs
           .map((doc) => ({
             id: doc.id,
@@ -99,8 +180,6 @@ export default function EssayPage() {
           }))
           .filter((pack) => pack.isActive)
           .sort((a, b) => a.price - b.price);
-
-        console.log("filtered active packs:", packs);
 
         setCreditPacks(packs);
       } catch (error) {
@@ -111,6 +190,39 @@ export default function EssayPage() {
 
     loadCreditPacks();
     loadUserCredits();
+
+    const uid = getCurrentUid();
+    if (!uid) return;
+
+    const userRef = doc(db, "users", uid);
+
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const totalCredits =
+            Number(data.freeCredits ?? 0) + Number(data.paidCredits ?? 0);
+
+          setCredits(totalCredits);
+          console.log(
+            "live credits update:",
+            totalCredits,
+            "free:",
+            data.freeCredits,
+            "paid:",
+            data.paidCredits,
+            "uid:",
+            uid
+          );
+        }
+      },
+      (error) => {
+        console.error("live credits listener error:", error);
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -125,6 +237,22 @@ export default function EssayPage() {
       setAiResult("Payment cancelled.");
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      updateSelectedTextFromWindow();
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("mouseup", handleSelectionChange);
+    document.addEventListener("keyup", handleSelectionChange);
+
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("mouseup", handleSelectionChange);
+      document.removeEventListener("keyup", handleSelectionChange);
+    };
+  }, []);
 
   const referencesTitle =
     selectedStyle === "MLA" ? "Works Cited" : "References";
@@ -208,15 +336,12 @@ export default function EssayPage() {
     );
   };
 
-  const callAi = async (
-    text: string,
-    mode: "check" | "improve",
-    cost: number
-  ) => {
+  const callAi = async (text: string, mode: AiMode) => {
     const clean = stripHtml(text);
+    const cost = getAiCost(mode);
 
     if (!clean.trim()) {
-      setAiResult("Please write something first.");
+      setAiResult("Please write or select something first.");
       return;
     }
 
@@ -228,7 +353,7 @@ export default function EssayPage() {
 
     try {
       setIsAiLoading(true);
-      setAiResult(mode === "check" ? "Checking..." : "Improving...");
+      setAiResult(getAiLoadingText(mode));
 
       const res = await fetch("/api/ai", {
         method: "POST",
@@ -248,9 +373,10 @@ export default function EssayPage() {
         return;
       }
 
-      setCredits((prev) => prev - cost);
+      setCredits((prev) => Math.max(prev - cost, 0));
       setAiResult(data.result || "No response.");
-    } catch {
+    } catch (error) {
+      console.error("AI request failed:", error);
       setAiResult("Failed to connect to AI.");
     } finally {
       setIsAiLoading(false);
@@ -258,35 +384,23 @@ export default function EssayPage() {
   };
 
   const handleCheck = async (text: string) => {
-    await callAi(text, "check", 1);
+    await callAi(text, "check");
   };
 
   const handleImprove = async (text: string) => {
-    await callAi(text, "improve", 2);
+    await callAi(text, "improve");
   };
 
-  const handleShortenSelected = () => {
-    if (!selectedTextPreview.trim()) {
-      setAiResult("Select some text first.");
-      return;
-    }
-    setAiResult(`Shorten selected text:\n\n${selectedTextPreview}`);
+  const handleShortenSelected = async () => {
+    await callAi(selectedTextPreview, "shorten");
   };
 
-  const handleExpandSelected = () => {
-    if (!selectedTextPreview.trim()) {
-      setAiResult("Select some text first.");
-      return;
-    }
-    setAiResult(`Expand selected text:\n\n${selectedTextPreview}`);
+  const handleExpandSelected = async () => {
+    await callAi(selectedTextPreview, "expand");
   };
 
-  const handleAcademicSelected = () => {
-    if (!selectedTextPreview.trim()) {
-      setAiResult("Select some text first.");
-      return;
-    }
-    setAiResult(`Academic rewrite selected text:\n\n${selectedTextPreview}`);
+  const handleAcademicSelected = async () => {
+    await callAi(selectedTextPreview, "academic");
   };
 
   const buildEssayLibraryPayload = () => ({
@@ -299,21 +413,25 @@ export default function EssayPage() {
   });
 
   const handleExportPdf = async () => {
+    const cleanTitle = stripHtml(title) || "essay";
+
     await exportTextToPdf({
-      fileName: (stripHtml(title) || "essay")
-        .replace(/\s+/g, "-")
-        .toLowerCase(),
+      fileName: cleanTitle.replace(/\s+/g, "-").toLowerCase(),
       content: fullDocumentPreview,
     });
+
+    setAiResult("PDF exported successfully.");
   };
 
   const handleExportDocx = async () => {
+    const cleanTitle = stripHtml(title) || "essay";
+
     await exportTextToDocx({
-      fileName: (stripHtml(title) || "essay")
-        .replace(/\s+/g, "-")
-        .toLowerCase(),
+      fileName: cleanTitle.replace(/\s+/g, "-").toLowerCase(),
       content: fullDocumentPreview,
     });
+
+    setAiResult("DOCX exported successfully.");
   };
 
   const handleShare = async () => {
@@ -330,17 +448,21 @@ export default function EssayPage() {
           title: stripHtml(title) || "Essay",
           text: shareText,
         });
+        setAiResult("Essay shared successfully.");
         return;
       }
 
       await navigator.clipboard.writeText(shareText);
       setAiResult("Essay copied to clipboard.");
-    } catch {
+    } catch (error) {
+      console.error("Sharing failed:", error);
       setAiResult("Sharing failed.");
     }
   };
 
   const handleSaveToLibrary = () => {
+    if (typeof window === "undefined") return;
+
     const payload = buildEssayLibraryPayload();
     const existingRaw = localStorage.getItem("docify_library");
     const existing = existingRaw ? JSON.parse(existingRaw) : [];
@@ -360,6 +482,13 @@ export default function EssayPage() {
         return;
       }
 
+      const uid = auth.currentUser?.uid;
+
+      if (!uid) {
+        setAiResult("User not logged in properly. Refresh and try again.");
+        return;
+      }
+
       const res = await fetch("/api/stripe-checkout", {
         method: "POST",
         headers: {
@@ -367,24 +496,29 @@ export default function EssayPage() {
         },
         body: JSON.stringify({
           priceId: pack.stripePriceId,
-          uid: getCurrentUid(),
+          uid: uid,
         }),
       });
 
       const data = await res.json();
+
+      if (!res.ok) {
+        setAiResult(data.error || "Checkout failed");
+        return;
+      }
 
       if (data.url) {
         window.location.href = data.url;
       } else {
         setAiResult(data.error || "Checkout failed");
       }
-    } catch {
+    } catch (error) {
+      console.error("Stripe error:", error);
       setAiResult("Stripe error");
     }
   };
-
-  return (
-    <>
+    return (
+    <div ref={pageRootRef}>
       {showBuyCredits && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-2xl bg-neutral-950 border border-neutral-800 rounded-3xl p-6 space-y-5">
@@ -436,8 +570,8 @@ export default function EssayPage() {
       )}
 
       <div className="space-y-6">
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
+          <div className="min-w-0 space-y-6">
             <div>
               <h1 className="text-3xl font-bold">Essay Builder</h1>
               <p className="text-gray-400 mt-2">
@@ -688,7 +822,7 @@ export default function EssayPage() {
             <DocumentPreview content={fullDocumentPreview} />
           </div>
 
-          <div className="space-y-5">
+          <div className="xl:sticky xl:top-6 self-start space-y-5">
             <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
               <h3 className="text-lg font-semibold">Workspace Credits</h3>
               <p className="text-3xl font-bold">{credits}</p>
@@ -701,40 +835,53 @@ export default function EssayPage() {
             </div>
 
             <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
-              <h3 className="text-lg font-semibold">Selected Text</h3>
-              <p className="text-sm text-gray-400 whitespace-pre-wrap">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold">Selected Text</h3>
+                <button
+                  onClick={() => setSelectedTextPreview("")}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-400 whitespace-pre-wrap max-h-40 overflow-y-auto">
                 {selectedTextPreview || "No text selected yet."}
               </p>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => handleCheck(selectedTextPreview)}
-                  disabled={isAiLoading}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+                  disabled={isAiLoading || !selectedTextPreview.trim()}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
                 >
                   Check
                 </button>
                 <button
                   onClick={() => handleImprove(selectedTextPreview)}
-                  disabled={isAiLoading}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-60"
+                  disabled={isAiLoading || !selectedTextPreview.trim()}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
                 >
                   Improve
                 </button>
                 <button
                   onClick={handleShortenSelected}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg"
+                  disabled={isAiLoading || !selectedTextPreview.trim()}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
                 >
                   Shorten
                 </button>
                 <button
                   onClick={handleExpandSelected}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg"
+                  disabled={isAiLoading || !selectedTextPreview.trim()}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
                 >
                   Expand
                 </button>
                 <button
                   onClick={handleAcademicSelected}
-                  className="bg-neutral-800 px-3 py-2 rounded-lg"
+                  disabled={isAiLoading || !selectedTextPreview.trim()}
+                  className="bg-neutral-800 px-3 py-2 rounded-lg disabled:opacity-50"
                 >
                   Academic
                 </button>
@@ -743,13 +890,23 @@ export default function EssayPage() {
 
             <div className="bg-neutral-900 p-5 rounded-2xl space-y-3">
               <h3 className="text-lg font-semibold">AI Result</h3>
-              <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                {aiResult}
-              </p>
+              <div className="max-h-80 overflow-y-auto">
+                <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                  {aiResult}
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </>
+    </div>
+  );
+}
+
+export default function EssayPage() {
+  return (
+    <FormattingProvider>
+      <EssayPageContent />
+    </FormattingProvider>
   );
 }
